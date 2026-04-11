@@ -23,4 +23,5 @@ Thumbs.db
 
 # Project Specific
 .agents/
+backend/config/user_settings.json
 

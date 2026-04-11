@@ -3,7 +3,16 @@ const userInput = document.getElementById('user-input');
 const sendBtn = document.getElementById('send-btn');
 const stopBtn = document.getElementById('stop-btn');
 const statusText = document.getElementById('status-text');
+const logsBtn = document.getElementById('logs-btn');
+const logsModal = document.getElementById('logs-modal');
+const logsList = document.getElementById('logs-list');
+const closeLogsBtn = document.getElementById('close-logs');
+const pastebinInput = document.getElementById('pastebin-key');
+const logViewerModal = document.getElementById('log-viewer-modal');
+const viewerContent = document.getElementById('log-content-area');
+const closeViewerBtn = document.getElementById('close-viewer');
 const appBody = document.body;
+const copyLogBtn = document.getElementById('copy-log-btn');
 
 let socket;
 let currentTurnContainer = null;
@@ -67,6 +76,20 @@ function connect() {
                 break;
             case 'error':
                 appendSimpleMessage('system', `ERROR: ${data.content}`);
+                break;
+            case 'logs_data':
+                showLogsModal(data.logs, data.settings);
+                break;
+            case 'pastebin_result':
+                handlePastebinResult(data.result, data.path);
+                break;
+            case 'log_content':
+                viewerContent.textContent = data.content;
+                logViewerModal.classList.remove('hidden');
+                break;
+            case 'log_deleted':
+                // Refresh list
+                socket.send(JSON.stringify({ type: 'open_logs' }));
                 break;
         }
     };
@@ -307,6 +330,110 @@ function removeThinkingIndicator() {
 // Event Listeners
 sendBtn.addEventListener('click', sendMessage);
 stopBtn.addEventListener('click', stopExecution);
+logsBtn.addEventListener('click', () => {
+    console.log("Logs button clicked");
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'open_logs' }));
+    }
+});
+closeLogsBtn.addEventListener('click', () => {
+    logsModal.classList.add('hidden');
+});
+closeViewerBtn.addEventListener('click', () => {
+    logViewerModal.classList.add('hidden');
+});
+pastebinInput.addEventListener('input', (e) => {
+    // Silent save to backend
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ 
+            type: 'update_settings', 
+            settings: { pastebin_api_key: e.target.value } 
+        }));
+    }
+});
+
+function showLogsModal(logs, settings) {
+    logsModal.classList.remove('hidden');
+    pastebinInput.value = settings.pastebin_api_key || "";
+    logsList.innerHTML = "";
+    
+    if (logs.length === 0) {
+        logsList.innerHTML = "<div class='no-logs'>No recent logs found.</div>";
+        return;
+    }
+    
+    logs.forEach(log => {
+        const item = document.createElement('div');
+        item.className = 'log-item';
+        item.innerHTML = `
+            <div class="log-info">
+                <span class="log-name">${log.name}</span>
+                <span class="log-time">${log.time}</span>
+            </div>
+            <div class="log-actions">
+                <button class="action-btn view-btn" data-path="${log.path}">VIEW</button>
+                <button class="action-btn upload-btn" data-path="${log.path}">UPLOAD</button>
+                <button class="action-btn delete-btn" data-path="${log.path}">DELETE</button>
+            </div>
+            <div class="log-result hidden" id="result-${log.path.replace(/[^a-zA-Z0-9]/g, '_')}"></div>
+        `;
+        
+        item.querySelector('.view-btn').onclick = () => {
+            socket.send(JSON.stringify({ type: 'get_log_content', path: log.path }));
+        };
+
+        item.querySelector('.delete-btn').style.display = log.is_active ? 'none' : 'block';
+        
+        item.querySelector('.delete-btn').onclick = (e) => {
+            const btn = e.target;
+            btn.disabled = true;
+            btn.textContent = "DELETING...";
+            socket.send(JSON.stringify({ type: 'delete_log_file', path: log.path }));
+        };
+        
+        item.querySelector('.upload-btn').onclick = (e) => {
+            const btn = e.target;
+            const apiKey = pastebinInput.value.trim();
+            if (!apiKey) {
+                alert("Please enter a Pastebin API Key first!");
+                return;
+            }
+            btn.disabled = true;
+            btn.textContent = "UPLOADING...";
+            socket.send(JSON.stringify({ type: 'upload_log_pastebin', path: log.path, api_key: apiKey }));
+        };
+        
+        logsList.appendChild(item);
+    });
+}
+
+function handlePastebinResult(result, path) {
+    const safeId = "result-" + path.replace(/[^a-zA-Z0-9]/g, '_');
+    const resultDiv = document.getElementById(safeId);
+    if (!resultDiv) return;
+    
+    const uploadBtn = resultDiv.parentElement.querySelector('.upload-btn');
+    uploadBtn.disabled = false;
+    uploadBtn.textContent = "UPLOAD";
+
+    resultDiv.classList.remove('hidden');
+    if (result.status === 'success') {
+        resultDiv.className = "log-result success";
+        resultDiv.innerHTML = `
+            <a href="${result.url}" target="_blank">${result.url}</a>
+            <button class="mini-copy-btn" id="copy-link-${safeId}">COPY</button>
+        `;
+        
+        const copyBtn = document.getElementById(`copy-link-${safeId}`);
+        copyBtn.onclick = () => copyToClipboard(result.url, copyBtn);
+        
+        // Auto-copy for convenience
+        copyToClipboard(result.url);
+    } else {
+        resultDiv.className = "log-result error";
+        resultDiv.textContent = result.message;
+    }
+}
 userInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });
 
 chatHistory.addEventListener('wheel', (e) => { if (e.deltaY < 0) userScrolledUp = true; }, { passive: true });
@@ -314,5 +441,39 @@ chatHistory.addEventListener('scroll', () => {
     const nearBottom = chatHistory.scrollHeight - chatHistory.scrollTop <= chatHistory.clientHeight + 60;
     if (nearBottom) userScrolledUp = false;
 }, { passive: true });
+
+// --- UTILS ---
+async function copyToClipboard(text, btn = null) {
+    try {
+        await navigator.clipboard.writeText(text);
+        if (btn) {
+            const originalText = btn.textContent;
+            btn.textContent = "COPIED!";
+            btn.classList.add('success-state');
+            setTimeout(() => {
+                btn.textContent = originalText;
+                btn.classList.remove('success-state');
+            }, 1500);
+        }
+    } catch (err) {
+        console.error("Failed to copy!", err);
+    }
+}
+
+// --- GLOBAL SHORTCUTS ---
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        // Hierarchical escape: close viewer first, then logs modal
+        if (!logViewerModal.classList.contains('hidden')) {
+            logViewerModal.classList.add('hidden');
+        } else if (!logsModal.classList.contains('hidden')) {
+            logsModal.classList.add('hidden');
+        }
+    }
+});
+
+copyLogBtn.onclick = () => {
+    copyToClipboard(viewerContent.textContent, copyLogBtn);
+};
 
 connect();

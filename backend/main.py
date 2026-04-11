@@ -1,4 +1,4 @@
-import sys, os
+import sys, os, subprocess
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'lib'))
 
 import asyncio
@@ -15,6 +15,62 @@ from shell_manager import global_shell
 import quick_dispatch
 
 from hypr_env import HYPRLAND_ENV
+
+# Settings Management
+SETTINGS_PATH = os.path.join(os.path.dirname(__file__), "config", "user_settings.json")
+
+def load_settings():
+    if os.path.exists(SETTINGS_PATH):
+        try:
+            with open(SETTINGS_PATH, "r") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Error loading settings: {e}")
+    return {"pastebin_api_key": ""}
+
+def save_settings(settings):
+    try:
+        os.makedirs(os.path.dirname(SETTINGS_PATH), exist_ok=True)
+        with open(SETTINGS_PATH, "w") as f:
+            json.dump(settings, f, indent=4)
+        return True
+    except Exception as e:
+        print(f"Error saving settings: {e}")
+    return False
+
+    return False
+
+async def upload_to_pastebin(file_path, api_key):
+    """Upload file content to Pastebin using the providing API key."""
+    import requests
+    if not api_key:
+        return {"status": "error", "message": "No API key provided."}
+    
+    try:
+        with open(file_path, "r") as f:
+            content = f.read()
+        
+        if not content.strip():
+            return {"status": "error", "message": "The log file is empty and cannot be uploaded."}
+        
+        data = {
+            'api_dev_key': api_key,
+            'api_option': 'paste',
+            'api_paste_code': content,
+            'api_paste_name': os.path.basename(file_path),
+            'api_paste_format': 'text',
+            'api_paste_private': '1', # Unlisted
+            'api_paste_expire_date': '1D' # 1 Day
+        }
+        
+        response = requests.post("https://pastebin.com/api/api_post.php", data=data)
+        if response.status_code == 200 and response.text.startswith("https://"):
+            return {"status": "success", "url": response.text}
+        else:
+            return {"status": "error", "message": f"Pastebin Error: {response.text}"}
+    except Exception as e:
+        return {"status": "error", "message": f"Upload failed: {str(e)}"}
+
 # -------------------------------------
 
 # Configuration
@@ -310,6 +366,67 @@ class AgentSession:
                 elif data.get("type") == "approval_response":
                     if self.pending_approval:
                         self.pending_approval["future"].set_result(data.get("approved", False))
+                
+                elif data.get("type") == "open_logs":
+                    print("[Backend] Processing open_logs request...")
+                    # This requested the modal data
+                    log_dir = global_logger.log_dir
+                    logs = []
+                    if os.path.exists(log_dir):
+                        files = [os.path.join(log_dir, f) for f in os.listdir(log_dir) if f.endswith(".log")]
+                        # Sort by mtime descending, then by filename descending for stability
+                        files.sort(key=lambda x: (os.path.getmtime(x), x), reverse=True)
+                        for f in files[:5]:
+                            logs.append({
+                                "name": os.path.basename(f),
+                                "path": f,
+                                "time": time.ctime(os.path.getmtime(f)),
+                                "is_active": f == global_logger.log_file
+                            })
+                    
+                    settings = load_settings()
+                    await self.send_json({"type": "logs_data", "logs": logs, "settings": settings})
+
+                elif data.get("type") == "update_settings":
+                    settings = data.get("settings", {})
+                    save_settings(settings)
+                    # No response needed, silent save
+
+                elif data.get("type") == "get_log_content":
+                    file_path = data.get("path")
+                    if file_path and os.path.exists(file_path):
+                        try:
+                            with open(file_path, "r") as f:
+                                content = f.read()
+                            await self.send_json({"type": "log_content", "content": content, "path": file_path})
+                        except Exception as e:
+                            await self.send_json({"type": "error", "content": f"Failed to read log: {e}"})
+
+                elif data.get("type") == "delete_log_file":
+                    file_path = data.get("path")
+                    print(f"[Backend] Deletion requested for: {file_path}")
+                    if file_path and os.path.exists(file_path):
+                        # Prevent deleting the actively writing log
+                        if file_path == global_logger.log_file:
+                            global_logger.log_message("system", f"Refusing to delete active log: {file_path}")
+                        else:
+                            try:
+                                # Hook into the registry tool logic
+                                from skills.system import delete_path
+                                result = delete_path(file_path)
+                                if result.get("status") == "success":
+                                    await self.send_json({"type": "log_deleted", "path": file_path})
+                                else:
+                                    global_logger.log_message("system", f"Deletion tool error: {result.get('message')}")
+                            except Exception as e:
+                                global_logger.log_message("system", f"Exception during deletion: {e}")
+
+                elif data.get("type") == "upload_log_pastebin":
+                    file_path = data.get("path")
+                    api_key = data.get("api_key")
+                    if file_path and os.path.exists(file_path):
+                        result = await upload_to_pastebin(file_path, api_key)
+                        await self.send_json({"type": "pastebin_result", "result": result, "path": file_path})
                     
         except websockets.exceptions.ConnectionClosed:
             print("Client disconnected")
@@ -323,6 +440,8 @@ class AgentSession:
 
             # CAP: Max 15 tool iterations per turn to prevent infinite loops or "spiraling" behavior.
             for turn in range(15):
+                # Ensure other messages (like open_logs) can be processed between turns
+                await asyncio.sleep(0.01)
                 # Context Injection (Fetched early for Spark awareness)
                 windows_context = []
                 try:

@@ -7,7 +7,8 @@ import platformdirs
 
 class SessionLogger:
     def __init__(self):
-        self.log_dir = os.path.join(platformdirs.user_log_dir("openaether"), "logs")
+        # Relocate logs to a local folder within the project for easier access
+        self.log_dir = os.path.join(os.path.dirname(__file__), "logs")
         if not os.path.exists(self.log_dir):
             os.makedirs(self.log_dir, exist_ok=True)
         
