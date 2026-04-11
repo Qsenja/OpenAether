@@ -46,7 +46,8 @@ package() {
         ollama \
         pytesseract \
         --target "$pkgdir/opt/openaether/backend/lib" \
-        --no-deps
+        --no-deps \
+        --break-system-packages
 
     # Startskript
     install -dm755 "$pkgdir/usr/bin"
@@ -93,4 +94,8 @@ ExecStop=/usr/bin/docker stop searxng
 [Install]
 WantedBy=multi-user.target
 EOF
+
+    # Ensure user-writable directories are not created in /opt
+    # Runtime dirs are handled by the app itself via platformdirs
+    chmod -R 755 "$pkgdir/opt/openaether"
 }

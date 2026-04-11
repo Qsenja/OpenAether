@@ -55,7 +55,12 @@ patterns:
 
 # Fixed commands: keyword match → tool with static args (no extraction needed)
 fixed_commands:
-  - keywords: [hi, hallo, hey, wer bist du, wer bist du?]
+  - keywords:
+      - hi
+      - hallo
+      - hey
+      - wer bist du
+      - wer bist du?
     response: "Ich bin Aether Core, dein Forschungs-Agent für Hyprland. Wie kann ich dir heute helfen?"
 
   - keywords: [mute, stumm, stummschalten, stummschaltung]

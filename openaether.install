@@ -19,6 +19,9 @@ post_install() {
     echo ">>> Enabling SearXNG systemd service..."
     systemctl enable openaether-searxng.service
 
+    # Create user log dir
+    mkdir -p "$HOME/.local/state/openaether/logs"
+
     echo ""
     echo ">>> OpenAether installed successfully!"
     echo ">>> Make sure Ollama is running: systemctl start ollama"
