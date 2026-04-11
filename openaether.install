@@ -2,19 +2,22 @@ post_install() {
     echo ">>> Pulling SearXNG Docker image..."
     docker pull searxng/searxng
 
-    echo ">>> Setting up SearXNG container..."
-    docker run -d \
-        --name searxng \
-        --restart always \
-        -p 8888:8080 \
-        searxng/searxng
-
-    sleep 3
-
-    # JSON API aktivieren
-    docker exec searxng sh -c \
-        "sed -i '/^  formats:/a\    - json' /etc/searxng/settings.yml"
-    docker restart searxng
+    # Only create if not already present
+    if ! docker ps -a --format '{{.Names}}' | grep -q "^searxng$"; then
+        echo ">>> Setting up SearXNG container..."
+        docker run -d \
+            --name searxng \
+            --restart always \
+            -p 8888:8080 \
+            searxng/searxng
+        sleep 3
+        # Enable JSON API
+        docker exec searxng sh -c \
+            "sed -i '/^  formats:/a\    - json' /etc/searxng/settings.yml"
+        docker restart searxng
+    else
+        echo ">>> SearXNG container already exists, skipping creation."
+    fi
 
     echo ">>> Enabling SearXNG systemd service..."
     systemctl enable openaether-searxng.service
@@ -29,7 +32,9 @@ post_install() {
 }
 
 post_upgrade() {
-    post_install
+    # On upgrade, just restart the container
+    docker restart searxng 2>/dev/null || true
+    echo ">>> OpenAether upgraded successfully!"
 }
 
 pre_remove() {
