@@ -1,0 +1,28 @@
+name: Update AUR on Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  aur:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: ver
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Update pkgver in PKGBUILD
+        run: sed -i "s/^pkgver=.*/pkgver=${{ steps.ver.outputs.version }}/" PKGBUILD
+
+      - name: Deploy to AUR
+        uses: KSXGitHub/github-actions-deploy-aur@master
+        with:
+          pkgname: openaether
+          pkgbuild: ./PKGBUILD
+          commit_username: ${{ secrets.AUR_USERNAME }}
+          commit_email: ${{ secrets.AUR_EMAIL }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: "Update to v${{ steps.ver.outputs.version }}"
