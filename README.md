@@ -14,7 +14,6 @@ OpenAether is an intelligent desktop agent framework tailored for **Arch Linux**
 
 - `backend/`: Python-based core logic, tool registry, and Ollama integration.
 - `frontend/`: Electron-based user interface.
-- `.agents/`: Local configuration for agentic behaviors.
 
 ## 📦 Getting Started
 
