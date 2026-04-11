@@ -14,6 +14,17 @@ const closeViewerBtn = document.getElementById('close-viewer');
 const appBody = document.body;
 const copyLogBtn = document.getElementById('copy-log-btn');
 
+// Setup Elements
+const setupScreen = document.getElementById('setup-screen');
+const appContainer = document.getElementById('app');
+const startSetupBtn = document.getElementById('start-setup-btn');
+const skipSetupBtn = document.getElementById('skip-setup-btn');
+const fixDockerBtn = document.getElementById('fix-docker-btn');
+const progressWrapper = document.getElementById('setup-progress-wrapper');
+const progressBarFill = document.getElementById('setup-progress-fill');
+const progressText = document.getElementById('setup-progress-text');
+const progressPercent = document.getElementById('setup-progress-percent');
+
 let socket;
 let currentTurnContainer = null;
 let currentAgentBubble = null;
@@ -31,7 +42,11 @@ function connect() {
         marked.setOptions({ breaks: true, gfm: true });
     }
 
-    socket.onopen = () => updateStatusDisplay('idle');
+    socket.onopen = () => {
+        updateStatusDisplay('idle');
+        // Check setup on every connect
+        socket.send(JSON.stringify({ type: 'get_setup_status' }));
+    };
     socket.onclose = () => {
         updateStatusDisplay('disconnected');
         setTimeout(connect, 2000);
@@ -86,6 +101,12 @@ function connect() {
             case 'log_content':
                 viewerContent.textContent = data.content;
                 logViewerModal.classList.remove('hidden');
+                break;
+            case 'setup_status':
+                setupManager.handleStatus(data.status);
+                break;
+            case 'pull_progress':
+                setupManager.handleProgress(data);
                 break;
             case 'log_deleted':
                 // Refresh list
@@ -319,11 +340,20 @@ function stopExecution() {
 sendBtn.addEventListener('click', sendMessage);
 stopBtn.addEventListener('click', stopExecution);
 logsBtn.addEventListener('click', () => {
-    console.log("Logs button clicked");
     if (socket && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: 'open_logs' }));
     }
 });
+
+const refreshLogsBtn = document.getElementById('refresh-logs-btn');
+refreshLogsBtn.onclick = () => {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        refreshLogsBtn.classList.add('spinning');
+        socket.send(JSON.stringify({ type: 'open_logs' }));
+        setTimeout(() => refreshLogsBtn.classList.remove('spinning'), 500);
+    }
+};
+
 closeLogsBtn.addEventListener('click', () => {
     logsModal.classList.add('hidden');
 });
@@ -346,7 +376,7 @@ function showLogsModal(logs, settings) {
     logsList.innerHTML = "";
     
     if (logs.length === 0) {
-        logsList.innerHTML = "<div class='no-logs'>No recent logs found.</div>";
+        logsList.innerHTML = "<div class='no-logs'>No session logs found.</div>";
         return;
     }
     
@@ -356,7 +386,11 @@ function showLogsModal(logs, settings) {
         item.innerHTML = `
             <div class="log-info">
                 <span class="log-name">${log.name}</span>
-                <span class="log-time">${log.time}</span>
+                <div class="log-meta">
+                    <span class="log-size">${log.size}</span>
+                    <span class="log-time">${log.time}</span>
+                    ${log.is_active ? '<span class="status-label">(ACTIVE)</span>' : ''}
+                </div>
             </div>
             <div class="log-actions">
                 <button class="action-btn view-btn" data-path="${log.path}">VIEW</button>
@@ -370,7 +404,10 @@ function showLogsModal(logs, settings) {
             socket.send(JSON.stringify({ type: 'get_log_content', path: log.path }));
         };
 
-        item.querySelector('.delete-btn').style.display = log.is_active ? 'none' : 'block';
+        if (log.is_active) {
+            item.querySelector('.delete-btn').style.opacity = '0.3';
+            item.querySelector('.delete-btn').style.pointerEvents = 'none';
+        }
         
         item.querySelector('.delete-btn').onclick = (e) => {
             const btn = e.target;
@@ -378,7 +415,7 @@ function showLogsModal(logs, settings) {
             btn.textContent = "DELETING...";
             socket.send(JSON.stringify({ type: 'delete_log_file', path: log.path }));
         };
-        
+
         item.querySelector('.upload-btn').onclick = (e) => {
             const btn = e.target;
             const apiKey = pastebinInput.value.trim();
@@ -463,5 +500,120 @@ window.addEventListener('keydown', (e) => {
 copyLogBtn.onclick = () => {
     copyToClipboard(viewerContent.textContent, copyLogBtn);
 };
+
+class SetupManager {
+    constructor() {
+        this.status = null;
+        this.isInstalling = false;
+        this.hasInitialized = false;
+
+        startSetupBtn.onclick = () => this.startInstallation();
+        skipSetupBtn.onclick = () => this.finishSetup();
+        fixDockerBtn.onclick = () => {
+            socket.send(JSON.stringify({ type: 'fix_docker' }));
+            fixDockerBtn.disabled = true;
+            fixDockerBtn.textContent = "FIXING...";
+        };
+    }
+
+    handleStatus(status) {
+        this.status = status;
+        console.log("[Setup] Status Update:", status);
+
+        const models = status.models;
+        const mainModel = models['qwen2.5:14b'];
+        const transModel = models['translategemma:4b'];
+
+        // Update UI Cards (Rows)
+        this.updateCard('card-ollama', status.ollama);
+        this.updateCard('card-docker', status.docker && status.searxng);
+        this.updateCard('card-model-main', mainModel.installed);
+        this.updateCard('card-model-translate', transModel.installed);
+
+        // Show Fix button if docker/searxng is down
+        if (status.docker && !status.searxng) {
+            fixDockerBtn.classList.remove('hidden');
+            fixDockerBtn.disabled = false;
+            fixDockerBtn.textContent = "REPAIR";
+        } else {
+            fixDockerBtn.classList.add('hidden');
+        }
+
+        // --- Loading Disposal ---
+        if (!this.hasInitialized) {
+            this.hasInitialized = true;
+            const loadingScreen = document.getElementById('loading-screen');
+            if (loadingScreen) {
+                loadingScreen.classList.add('fade-out');
+                setTimeout(() => loadingScreen.remove(), 600);
+            }
+        }
+
+        // Logic to switch screens
+        const allReady = status.ollama && status.searxng && mainModel.installed && transModel.installed;
+        
+        if (allReady && !status.forced) {
+            this.finishSetup();
+        } else {
+            this.showSetup();
+            // Enable "Start Installation" if ollama is running but models are missing
+            if (status.ollama && (!mainModel.installed || !transModel.installed)) {
+                startSetupBtn.classList.remove('hidden');
+            } else {
+                startSetupBtn.classList.add('hidden');
+            }
+            
+            if (status.forced) {
+                skipSetupBtn.classList.remove('hidden');
+            }
+        }
+    }
+
+    updateCard(id, isReady) {
+        const el = document.getElementById(id);
+        const label = el.querySelector('.status-text-info');
+        if (isReady) {
+            el.className = "setup-row ready";
+            label.textContent = "ALIVE";
+        } else {
+            el.className = "setup-row error";
+            label.textContent = "MISSING";
+        }
+    }
+
+    handleProgress(data) {
+        progressWrapper.classList.remove('hidden');
+        progressText.textContent = `[${data.model}] ${data.status}...`;
+        progressPercent.textContent = `${Math.round(data.percent)}%`;
+        progressBarFill.style.width = `${data.percent}%`;
+    }
+
+    async startInstallation() {
+        if (this.isInstalling) return;
+        this.isInstalling = true;
+        startSetupBtn.disabled = true;
+        startSetupBtn.textContent = "INSTALLING...";
+        
+        if (!this.status.models['qwen2.5:14b'].installed) {
+            socket.send(JSON.stringify({ type: 'pull_model', model: 'qwen2.5:14b' }));
+        } else if (!this.status.models['translategemma:4b'].installed) {
+            socket.send(JSON.stringify({ type: 'pull_model', model: 'translategemma:4b' }));
+        }
+    }
+
+    showSetup() {
+        setupScreen.classList.remove('hidden');
+        appContainer.classList.add('hidden');
+        appBody.style.overflow = 'hidden';
+    }
+
+    finishSetup() {
+        setupScreen.classList.add('hidden');
+        appContainer.classList.remove('hidden');
+        appBody.style.overflow = 'auto';
+    }
+}
+
+const setupManager = new SetupManager();
 
 connect();

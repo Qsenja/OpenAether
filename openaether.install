@@ -2,11 +2,7 @@ post_install() {
     echo ">>> Creating Python virtual environment in /opt/openaether/venv..."
     python -m venv --system-site-packages /opt/openaether/venv
     /opt/openaether/venv/bin/pip install --upgrade pip
-    /opt/openaether/venv/bin/pip install \
-        ollama \
-        qwen-agent[code_interpreter,rag] \
-        json5 \
-        soundfile
+    /opt/openaether/venv/bin/pip install -r /opt/openaether/backend/requirements.txt
 
     echo ">>> Pulling SearXNG Docker image..."
     docker pull searxng/searxng
@@ -36,7 +32,10 @@ post_install() {
 
     echo ""
     echo ">>> OpenAether installed successfully!"
-    echo ">>> Make sure Ollama is running: systemctl start ollama"
+    echo ">>> IMPORTANT: Ensure Ollama and Docker services are enabled and running:"
+    echo ">>>   systemctl enable --now ollama"
+    echo ">>>   systemctl enable --now docker"
+    echo ">>>"
     echo ">>> Launch with: openaether"
 }
 

@@ -44,13 +44,24 @@ function startBackend() {
   const backendDir = path.join(__dirname, '..', 'backend');
   const mainPyPath = path.join(backendDir, 'main.py');
   
-  // Detect Python path (use project root venv if it exists)
-  const venvPath = path.join(__dirname, '..', 'venv', 'bin', 'python');
+  // Detect Python path: Prefer venv in project root, then fallback to system python3
+  const venvPath = path.resolve(__dirname, '..', 'venv', 'bin', 'python');
   const pythonExe = require('fs').existsSync(venvPath) ? venvPath : 'python3';
 
-  console.log(`Starting backend with: ${pythonExe}`);
-  // Use -u for unbuffered binary stdout/stderr
-  pythonProcess = spawn(pythonExe, ['-u', mainPyPath]);
+  const pythonArgs = ['-u', mainPyPath];
+  
+  // Forward relevant CLI flags to backend
+  if (process.argv.includes('--setup-test')) {
+    pythonArgs.push('--setup-test');
+  }
+
+  console.log(`[OpenAether] Spawning backend: ${pythonExe} ${pythonArgs.join(' ')}`);
+  console.log(`[OpenAether] Backend CWD: ${backendDir}`);
+
+  pythonProcess = spawn(pythonExe, pythonArgs, {
+    cwd: backendDir,
+    env: { ...process.env, PYTHONUNBUFFERED: '1' }
+  });
 
   pythonProcess.stdout.on('data', (data) => {
     console.log(`Backend: ${data}`);

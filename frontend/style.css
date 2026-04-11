@@ -780,41 +780,51 @@ body.status-executing #status-text {
     z-index: 30000;
 }
 
-.viewer-modal .modal-content {
-    max-width: 900px;
-    width: 95%;
-    height: 85vh;
+.viewer-modal.modal-content {
+    max-width: 760px; /* Reduced width for skimmed look */
+    width: 80%;
+    height: 80vh; /* Fixed height is mandatory for internal scrolling */
+    border-color: rgba(255, 140, 0, 0.2);
+    box-shadow: 0 40px 100px rgba(0,0,0,0.9), 0 0 20px var(--orange-glow);
 }
 
 .viewer-container {
     flex: 1;
+    min-height: 0; /* Important for flex child scrolling */
     overflow: hidden;
-    background: #000;
-    padding: 24px;
+    background: rgba(0, 0, 0, 0.6);
+    padding: 0;
     border-radius: 0 0 var(--radius-lg) var(--radius-lg);
-    box-shadow: inset 0 0 30px rgba(0,0,0,0.8);
+    display: flex;
+    flex-direction: column;
 }
 
 #log-content-area {
     margin: 0;
+    padding: 24px;
     font-family: var(--font-mono);
-    font-size: 12px;
-    color: #86efac;
-    overflow: auto;
+    font-size: 13px;
+    color: var(--text-main);
+    overflow-y: auto; /* Force vertical scroll */
+    overflow-x: auto;
     height: 100%;
-    line-height: 1.6;
+    line-height: 1.7;
     white-space: pre-wrap;
-    text-shadow: 0 0 5px rgba(134, 239, 172, 0.2);
+    word-break: break-word; /* Better than break-all */
+    background: transparent;
 }
 
-/* CUSTOM MODAL SCROLLBAR */
-.viewer-container #log-content-area::-webkit-scrollbar {
-    width: 5px;
+#log-content-area::-webkit-scrollbar {
+    width: 6px;
 }
 
-.viewer-container #log-content-area::-webkit-scrollbar-thumb {
-    background: rgba(134, 239, 172, 0.2);
+#log-content-area::-webkit-scrollbar-thumb {
+    background: rgba(255, 140, 0, 0.2);
     border-radius: 10px;
+}
+
+#log-content-area::-webkit-scrollbar-thumb:hover {
+    background: var(--orange);
 }
 
 .modal-footer {
@@ -854,3 +864,318 @@ body.status-executing #status-text {
 }
 
 .no-logs { text-align: center; color: var(--text-muted); padding: 50px; font-style: italic; font-size: 14px; }
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.mini-icon-btn {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text-muted);
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.mini-icon-btn svg { width: 14px; height: 14px; }
+.mini-icon-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+
+.log-item {
+    background: rgba(255,255,255,0.02);
+    border-bottom: 1px solid var(--border);
+    padding: 15px 20px;
+}
+
+.log-name {
+    display: block;
+    font-size: 13px;
+    font-family: var(--font-mono);
+    color: #eee;
+}
+
+.log-meta {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    display: flex;
+    gap: 15px;
+    margin-top: 4px;
+}
+
+.log-size { color: var(--orange); font-weight: 700; }
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.spinning svg {
+    animation: spin 0.5s linear infinite;
+}
+
+#log-content-area .log-line-highlight {
+    background: rgba(255, 140, 0, 0.1);
+}
+
+/* SETUP / OOBE SCREEN - REFINED */
+#setup-screen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: radial-gradient(circle at 50% 50%, #1a1a1a 0%, #080808 100%);
+    z-index: 50000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    box-sizing: border-box;
+}
+
+.setup-container {
+    max-width: 600px;
+    width: 100%;
+    background: rgba(255, 255, 255, 0.02);
+    backdrop-filter: blur(25px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 28px;
+    padding: 3rem;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+    box-shadow: 0 40px 100px rgba(0,0,0,0.8);
+    animation: fadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.setup-branding {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.mini-logo {
+    margin: 0 !important;
+    font-size: 1rem;
+    letter-spacing: 0.3em;
+    opacity: 0.7;
+}
+
+.setup-header h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin: 0;
+    color: #fff;
+}
+
+.setup-header p {
+    color: var(--text-muted);
+    font-size: 0.95rem;
+    margin-top: 0.4rem;
+    line-height: 1.5;
+}
+
+.setup-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.setup-row {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 16px;
+    padding: 1rem 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+.setup-row:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+.row-status-icon {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #333;
+    flex-shrink: 0;
+    transition: all 0.4s ease;
+}
+
+.ready .row-status-icon {
+    background: #4ade80;
+    box-shadow: 0 0 12px rgba(74, 222, 128, 0.4);
+}
+
+.error .row-status-icon {
+    background: #f87171;
+    box-shadow: 0 0 12px rgba(248, 113, 113, 0.4);
+}
+
+.row-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.row-label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #eee;
+}
+
+.status-text-info {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.row-fix-btn {
+    margin-left: auto;
+    background: var(--orange);
+    color: #000;
+    border: none;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 9px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.progress-section {
+    padding-top: 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.progress-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    margin-bottom: 0.75rem;
+}
+
+#setup-progress-text { color: var(--text-muted); }
+#setup-progress-percent { color: var(--orange); font-weight: 700; font-family: var(--font-mono); }
+
+.progress-track {
+    height: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: var(--orange);
+    width: 0%;
+    transition: width 0.3s ease;
+    box-shadow: 0 0 10px var(--orange-glow);
+}
+
+.setup-actions {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    margin-top: 0.5rem;
+}
+
+.setup-primary-btn {
+    background: var(--orange);
+    color: #000;
+    border: none;
+    padding: 12px 30px;
+    border-radius: 12px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.setup-primary-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px var(--orange-glow);
+}
+
+.setup-secondary-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.setup-secondary-btn:hover { color: #fff; }
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: scale(0.98) translateY(10px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* LOADING SCREEN - CLEAN & MINIMAL */
+#loading-screen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #080808;
+    background: radial-gradient(circle at 50% 50%, #151515 0%, #050505 100%);
+    z-index: 60000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.6s;
+}
+
+.loading-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.5rem;
+    animation: fadeIn 1.2s ease-out;
+}
+
+.pulse-logo {
+    font-size: 2.2rem !important;
+    margin: 0 !important;
+    letter-spacing: 0.15em;
+    animation: logoBreathing 3s ease-in-out infinite;
+    text-shadow: 0 0 40px rgba(255, 255, 255, 0.1);
+}
+
+.loading-status {
+    font-size: 10px;
+    font-weight: 800;
+    color: var(--text-muted);
+    letter-spacing: 0.3em;
+    opacity: 0.5;
+}
+
+#loading-screen.fade-out {
+    opacity: 0;
+    visibility: hidden;
+}
+
+@keyframes logoBreathing {
+    0%, 100% { opacity: 0.4; transform: scale(0.98); filter: blur(1px); }
+    50% { opacity: 1; transform: scale(1); filter: blur(0); }
+}

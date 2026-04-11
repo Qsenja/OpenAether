@@ -353,6 +353,6 @@ class ToolRegistry:
                 return func_or_cls(**coerced_args)
             except Exception as e:
                 return {"status": "error", "message": f"Error executing tool {resolved}: {str(e)}"}
-        return {"status": "error", "message": f"Tool '{name}' not found. Available tools: {', '.join(list(self.tools.keys())[:10])}..."}
+        return {"status": "error", "message": f"Tool '{name}' not found. To look for new capabilities, use 'discover_tools(query)'. Available tools: {', '.join(list(self.tools.keys())[:5])}..."}
 
 registry = ToolRegistry()

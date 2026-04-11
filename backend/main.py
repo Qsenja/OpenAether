@@ -1,5 +1,20 @@
-import sys, os, subprocess
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'lib'))
+import sys, os, subprocess, platformdirs, argparse
+
+# CLI Arguments
+parser = argparse.ArgumentParser()
+parser.add_argument("--setup-test", action="store_true", help="Force the setup/OOBE screen for testing")
+args, _ = parser.parse_known_args()
+FORCED_SETUP = args.setup_test
+
+# Emergency stderr logging for headless environments (AUR)
+def emergency_log(msg):
+    sys.stderr.write(f"[EMERGENCY] {msg}\n")
+    sys.stderr.flush()
+
+try:
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'lib'))
+except Exception as e:
+    emergency_log(f"Path initialization failed: {e}")
 
 import asyncio
 import json
@@ -29,7 +44,7 @@ except ImportError:
 from hypr_env import HYPRLAND_ENV
 
 # Settings Management
-SETTINGS_PATH = os.path.join(os.path.dirname(__file__), "config", "user_settings.json")
+SETTINGS_PATH = os.path.join(platformdirs.user_config_dir("openaether"), "user_settings.json")
 
 def load_settings():
     if os.path.exists(SETTINGS_PATH):
@@ -133,6 +148,67 @@ def _load_system_prompt() -> str:
         global_logger.log_message("system", f"[main] Failed to load system_prompt.txt: {e}")
         return "You are Aether Core, the intelligence layer of the OpenAether desktop framework."
 
+async def check_setup_status():
+    """Check Ollama, Models, and Docker/SearXNG status."""
+    status = {
+        "ollama": False,
+        "models": {
+            MODEL: {"installed": False, "size": "9.1GB"},
+            "translategemma:4b": {"installed": False, "size": "4.1GB"}
+        },
+        "docker": False,
+        "searxng": False,
+        "forced": FORCED_SETUP
+    }
+
+    # 1. Check Ollama & Models
+    try:
+        models_resp = ollama.list()
+        status["ollama"] = True
+        
+        # Robust parsing for different ollama-python versions
+        installed_names = []
+        # models_resp can be a list or an object with a .models attribute
+        raw_models = models_resp.get('models', []) if isinstance(models_resp, dict) else getattr(models_resp, 'models', [])
+        
+        for m in raw_models:
+            # Handle both objects (with .model) and dicts (with ['name'] or ['model'])
+            if hasattr(m, 'model'):
+                installed_names.append(m.model)
+            elif hasattr(m, 'name'):
+                installed_names.append(m.name)
+            elif isinstance(m, dict):
+                installed_names.append(m.get('model') or m.get('name', ''))
+
+        for m_name in status["models"]:
+            # Check for exact or substring match (to handle version tags)
+            if any(m_name == name or name.startswith(m_name) for name in installed_names):
+                status["models"][m_name]["installed"] = True
+    except Exception as e:
+        print(f"Ollama check failed: {e}")
+
+    # 2. Check Docker
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "info", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        await proc.communicate()
+        status["docker"] = (proc.returncode == 0)
+    except:
+        pass
+
+    # 3. Check SearXNG
+    from skills.web import get_searxng_url
+    import requests
+    url = get_searxng_url()
+    try:
+        resp = await asyncio.to_thread(requests.get, f"{url}/search?q=ping", timeout=1)
+        status["searxng"] = (resp.status_code == 200)
+    except:
+        pass
+
+    return status
+
 SYSTEM_PROMPT = _load_system_prompt()
 
 # Core tools that are ALWAYS available
@@ -223,6 +299,44 @@ class AgentSession:
                     user_msg = data.get("content")
                     self.messages.append({'role': 'user', 'content': user_msg})
                     global_logger.log_message("user", user_msg)
+                    
+                    # --- QUICK DISPATCH (Spark) Layer ---
+                    try:
+                        spark_res = await quick_dispatch.dispatch(user_msg, registry)
+                        if spark_res and spark_res.get("handled"):
+                            if "response" in spark_res:
+                                await self.send_json({"type": "agent_message", "content": spark_res["response"]})
+                                self.messages.append({'role': 'assistant', 'content': spark_res["response"]})
+                                await self.send_json({"type": "agent_message_done"})
+                                return
+
+                            tool = spark_res["tool"]
+                            args = spark_res["args"]
+                            if spark_res.get("pre_msg"):
+                                await self.send_json({"type": "agent_message", "content": spark_res["pre_msg"]})
+                            
+                            tlog(f"[Spark] Executing Instant Tool: {tool}")
+                            res = await registry.execute(tool, args)
+                            
+                            # Log and update history correctly
+                            self.messages.append({
+                                'role': 'assistant', 
+                                'content': '', 
+                                'function_call': {'name': tool, 'arguments': json.dumps(args)}
+                            })
+                            self.messages.append({
+                                'role': 'function',
+                                'content': json.dumps(res, ensure_ascii=False),
+                                'name': tool
+                            })
+                            
+                            # Final follow-up text? Spark usually just finishes or hands off.
+                            # For simplicity, we just wrap it up here.
+                            await self.send_json({"type": "agent_message_done"})
+                            return
+                    except Exception as e:
+                        tlog(f"Spark Error (non-fatal): {e}")
+
                     self.current_task = asyncio.create_task(self.process_loop())
                 
                 elif data.get("type") == "stop_request":
@@ -239,11 +353,27 @@ class AgentSession:
                 elif data.get("type") == "open_logs":
                     log_dir = global_logger.log_dir
                     logs = []
+                    
+                    def format_size(size):
+                        for unit in ['B', 'KB', 'MB', 'GB']:
+                            if size < 1024: return f"{size:.1f}{unit}"
+                            size /= 1024
+                        return f"{size:.1f}TB"
+
                     if os.path.exists(log_dir):
                         files = [os.path.join(log_dir, f) for f in os.listdir(log_dir) if f.endswith(".log")]
-                        files.sort(key=lambda x: (os.path.getmtime(x), x), reverse=True)
-                        for f in files[:5]:
-                            logs.append({"name": os.path.basename(f), "path": f, "is_active": f == global_logger.log_file})
+                        # Sort by mtime
+                        files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+                        
+                        for f in files[:10]: # Return top 10
+                            mtime = os.path.getmtime(f)
+                            logs.append({
+                                "name": os.path.basename(f),
+                                "path": f,
+                                "is_active": f == global_logger.log_file,
+                                "size": format_size(os.path.getsize(f)),
+                                "time": time.strftime("%Y-%m-%d %H:%M", time.localtime(mtime))
+                            })
                     settings = load_settings()
                     await self.send_json({"type": "logs_data", "logs": logs, "settings": settings})
 
@@ -263,6 +393,38 @@ class AgentSession:
                         from skills.system import delete_path
                         delete_path(file_path)
                         await self.send_json({"type": "log_deleted", "path": file_path})
+
+                elif data.get("type") == "get_setup_status":
+                    status = await check_setup_status()
+                    await self.send_json({"type": "setup_status", "status": status})
+
+                elif data.get("type") == "fix_docker":
+                    # Attempt to start or re-init SearXNG
+                    await check_searxng()
+                    status = await check_setup_status()
+                    await self.send_json({"type": "setup_status", "status": status})
+
+                elif data.get("type") == "pull_model":
+                    model_name = data.get("model")
+                    if model_name:
+                        try:
+                            # Stream progressive status
+                            progress = ollama.pull(model=model_name, stream=True)
+                            for chunk in progress:
+                                if self.interrupted: break
+                                # Chunk format: {'status': '...', 'total': ..., 'completed': ...}
+                                await self.send_json({
+                                    "type": "pull_progress",
+                                    "model": model_name,
+                                    "status": chunk.get('status'),
+                                    "percent": (chunk.get('completed', 0) / chunk.get('total', 1)) * 100 if chunk.get('total') else 0
+                                })
+                            
+                            # Final status update
+                            final_status = await check_setup_status()
+                            await self.send_json({"type": "setup_status", "status": final_status})
+                        except Exception as e:
+                            await self.send_json({"type": "error", "content": f"Model pull failed: {e}"})
 
                 elif data.get("type") == "upload_log_pastebin":
                     file_path = data.get("path")
@@ -411,10 +573,23 @@ class AgentSession:
                         
                         # Handle Tool Outputs (Results)
                         if m.get('role') == 'function':
+                            tname = m.get('name', 'unknown')
+                            call_id = self.call_id_map.get(tname)
+                            res_content = m.get('content', '{}')
+                            
+                            # --- JIT Hallucination Self-Correction ---
+                            # If qwen-agent returns a string instead of JSON, it's likely a tool error
+                            if "does not exists" in res_content and tname != 'unknown':
+                                tlog(f"[JIT] Detected hallucinated tool: {tname}. Checking registry...")
+                                if registry.resolve_name(tname) in registry.tools:
+                                    tlog(f"[JIT] Valid tool found. Auto-loading '{tname}' and restarting...")
+                                    self.loaded_tools.add(tname)
+                                    await self._reinit_agent()
+                                    # Auto-resume logic will catch self.reinitialized and restart
+                                    seen_interactions.add(m_idx)
+                                    continue
+
                             try:
-                                tname = m.get('name', 'unknown')
-                                call_id = self.call_id_map.get(tname)
-                                res_content = m.get('content', '{}')
                                 res = json.loads(res_content)
                                 tlog(f"Tool Result received for: {tname} (ID: {call_id})")
                                 await self.send_json({

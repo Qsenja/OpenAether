@@ -22,6 +22,8 @@ depends=(
     'python-platformdirs'
     'python-pip'
     'tesseract'
+    'python-json5'
+    'ollama'
 )
 makedepends=('python-pip')
 install=openaether.install
