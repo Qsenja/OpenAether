@@ -8,13 +8,17 @@ from registry import registry
 from shell_manager import global_shell
 
 # --- HYPRLAND CONTROLS ---
-async def _hypr(cmd: str) -> dict: return await global_shell.execute(f"hyprctl {cmd}")
+async def _hypr(cmd: str, timeout=30) -> dict: 
+    return await global_shell.execute(f"hyprctl {cmd}", timeout=timeout)
 
 @registry.register("get_workspaces", "List all Hyprland workspaces.", {})
 async def get_workspaces():
-    from hypr_env import HYPRLAND_ENV
-    out = subprocess.check_output(["hyprctl", "workspaces", "-j"], text=True, env=HYPRLAND_ENV)
-    return {"status": "success", "workspaces": json.loads(out)}
+    try:
+        res = await _hypr("workspaces -j", timeout=2)
+        if res.get("status") == "success":
+            return {"status": "success", "workspaces": json.loads(res.get("output", "[]"))}
+    except: pass
+    return {"status": "success", "workspaces": []}
 
 @registry.register("switch_workspace", "Switch to workspace number.", {"type":"object", "properties":{"number":{"type":"integer"}}, "required":["number"]})
 async def switch_workspace(number: int):
@@ -28,9 +32,13 @@ async def move_window_to_workspace(number: int):
 
 @registry.register("get_windows", "Get all open windows.", {})
 async def get_windows():
-    res = await _hypr("clients -j")
-    clients = json.loads(res.get("output", "[]"))
-    return [{"title": c.get("title"), "class": c.get("class"), "address": c.get("address")} for c in clients]
+    try:
+        res = await _hypr("clients -j", timeout=2)
+        if res.get("status") == "success":
+            clients = json.loads(res.get("output", "[]"))
+            return [{"title": c.get("title"), "class": c.get("class"), "address": c.get("address")} for c in clients]
+    except: pass
+    return []
 
 # --- GUI INTERACTION & OCR ---
 @registry.register("click", "Click at (x, y).", {"type":"object","properties":{"x":{"type":"integer"},"y":{"type":"integer"}},"required":["x","y"]})

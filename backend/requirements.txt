@@ -7,3 +7,6 @@ pytesseract
 Pillow
 PyYAML
 platformdirs
+qwen-agent[code_interpreter,rag]
+json5
+soundfile

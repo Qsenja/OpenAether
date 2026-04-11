@@ -78,8 +78,8 @@ class ShellManager:
                     "command": command
                 }
             
-            # Bypass terminal echo: wait for the sentinel to be PRINTED, not just ECHOED
-            if output.count(sentinel) >= 2:
+            # Since we use 'stty -echo', we only expect the sentinel ONCE (the print)
+            if sentinel in output:
                 break
             
             # Allow other tasks to run
@@ -88,12 +88,9 @@ class ShellManager:
         # Final cleaning
         cleaned = self._strip_ansi(output)
         
-        # Remove the command echo (first line usually)
+        # Remove the command echo if it somehow leaked through, and the sentinel
         cmd_strip = self._strip_ansi(full_command).strip()
-        cleaned = cleaned.replace(cmd_strip, "")
-        
-        # Remove sentinel and trailing prompts
-        cleaned = cleaned.replace(sentinel, "").strip()
+        cleaned = cleaned.replace(cmd_strip, "").replace(sentinel, "").strip()
         
         # Strip carriage returns and excessive whitespace
         cleaned = cleaned.replace("\r", "").strip()

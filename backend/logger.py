@@ -4,6 +4,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'lib'))
 import json
 import time
 import platformdirs
+import time
+
+GLOBAL_START_TIME = time.time()
+
+def tlog(msg):
+    print(f"[TRACER][{time.time()-GLOBAL_START_TIME:.3f}s] {msg}", flush=True)
 
 class SessionLogger:
     def __init__(self):
@@ -56,19 +62,22 @@ class SessionLogger:
         with open(self.log_file, "a") as f:
             if event_type == "message":
                 role = data.get("role", "unknown").upper()
-                f.write(f"[{ts}] {role}: {data.get('content')}\n\n")
+                content = data.get("content")
+                fcall = data.get("function_call")
+                
+                if content:
+                    f.write(f"[{ts}] {role}: {content}\n\n")
+                
+                if fcall:
+                    f.write(f"[{ts}] {role} (ACTION): {fcall.get('name')}({fcall.get('arguments')})\n\n")
+                
                 self.last_type = None
+
             elif event_type == "tool":
-                f.write(f"[{ts}] TOOL_CALL: {data.get('name')}\n")
-                f.write(f"[{ts}] ARGUMENTS: {json.dumps(data.get('args'), indent=2)}\n")
+                # redundant but kept for safety if log_tool is called directly
+                f.write(f"[{ts}] TOOL_RESULT: {data.get('name')}\n")
                 out = str(data.get("output"))
-                f.write(f"[{ts}] TOOL_RESULT (Raw): {out[:2000]}...\n\n")
-                self.last_type = None
-            elif event_type == "error_report":
-                f.write(f"[{ts}] !!! ERROR_REPORT !!!\n")
-                f.write(f"[{ts}] MODULE: {data.get('module')}\n")
-                f.write(f"[{ts}] ISSUE: {data.get('issue')}\n")
-                f.write(f"[{ts}] DETAILS: {data.get('details')}\n\n")
+                f.write(f"[{ts}] DATA: {out[:3000]}\n\n")
                 self.last_type = None
             elif event_type == "server_to_client" and data.get("type") == "agent_thought":
                 # Only write header if this is a NEW thought stream

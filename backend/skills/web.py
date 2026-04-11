@@ -9,12 +9,14 @@ from bs4 import BeautifulSoup
 from registry import registry
 from logger import global_logger
 from shell_manager import global_shell
+import webbrowser
+from logger import tlog
 
 # --- WEB SEARCH & BROWSING ---
 def get_searxng_url():
     """Read searxng_url from config or fallback to localhost."""
     try:
-        config_path = os.path.expanduser("~/.config/openetude/config.json")
+        config_path = os.path.expanduser("~/.config/openaether/config.json")
         if os.path.exists(config_path):
             with open(config_path, 'r') as f:
                 return json.load(f).get("searxng_url", "http://localhost:8888")
@@ -23,11 +25,11 @@ def get_searxng_url():
     return "http://localhost:8888"
 
 @registry.register(
-    "web_search",
-    "Search the internet and fetch text content from top results.",
+    "aether_search",
+    "Search the internet for external facts, news, or weather. DO NOT use this for local system information (installed packages, software versions) if local tools like 'get_software_version' are available.",
     {"type":"object", "properties":{"query":{"type":"string"}}, "required":["query"]}
 )
-async def web_search(query: str):
+async def aether_search(query: str):
     base_url = get_searxng_url()
     try:
         r = requests.get(f"{base_url}/search", params={"q": query, "format": "json"}, timeout=10)
@@ -90,3 +92,23 @@ async def ssh_command(host, user, command):
 @registry.register("get_device_info", "Deep scan a specific IP (ports/OS).", {"type":"object", "properties":{"ip":{"type":"string"}}, "required":["ip"]})
 async def get_device_info(ip: str):
     return await global_shell.execute(f"pkexec nmap -sV -O {ip}")
+
+@registry.register(
+    "open_website",
+    "Open a specific URL in the system's default web browser.",
+    {"type":"object", "properties":{"url":{"type":"string"}}, "required":["url"]}
+)
+async def open_website(url: str):
+    """Opens a website using the system's default browser."""
+    try:
+        # Prepend https:// if missing schema
+        if not re.match(r'^[a-z]+://', url):
+            url = "https://" + url
+        
+        # open() is non-blocking on most platforms as it spawns a process
+        # We wrap in a thread just to be safe if the OS handler is slow.
+        await asyncio.to_thread(webbrowser.open, url)
+        tlog(f"Opening website Action: {url}")
+        return {"status": "success", "message": f"Opening {url} in system browser."}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}

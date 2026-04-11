@@ -112,13 +112,11 @@ function updateStatusDisplay(status, modelName) {
         userInput.disabled = false;
         sendBtn.classList.remove('hidden');
         stopBtn.classList.add('hidden');
-        removeThinkingIndicator();
         if (status === 'idle') userInput.focus();
     } else {
         userInput.disabled = true;
         sendBtn.classList.add('hidden');
         stopBtn.classList.remove('hidden');
-        ensureThinkingIndicator(status);
     }
 }
 
@@ -134,8 +132,12 @@ function ensureTurnContainer() {
         header.textContent = (currentModelName || 'Aether Core').toUpperCase();
         currentTurnContainer.appendChild(header);
 
+        // Unified bubble for the turn
+        currentAgentBubble = document.createElement('div');
+        currentAgentBubble.className = 'agent-bubble';
+        currentTurnContainer.appendChild(currentAgentBubble);
+
         // --- EVENT DELEGATION FOR REASONING ---
-        // Instead of adding listeners to every header, we listen once per turn
         currentTurnContainer.addEventListener('click', (e) => {
             const header = e.target.closest('.thought-header');
             if (header) {
@@ -184,7 +186,7 @@ function appendToThought(text, isFlush = false) {
             <div class="thought-header"><span>REASONING</span></div>
             <div class="thought-content"></div>
         `;
-        currentTurnContainer.appendChild(currentThoughtContainer);
+        currentAgentBubble.appendChild(currentThoughtContainer);
     }
     
     const content = currentThoughtContainer.querySelector('.thought-content');
@@ -208,13 +210,12 @@ const TOOL_LABELS = {
 function createToolCapsule(name, args, call_id) {
     // BREAK reasoning stream: any future thoughts start a new block below this tool
     currentThoughtContainer = null;
-    currentAgentBubble = null;
     
     // Ensure we have a horizontal GROUP for capsules
     if (!currentToolGroup) {
         currentToolGroup = document.createElement('div');
         currentToolGroup.className = 'tool-group';
-        currentTurnContainer.appendChild(currentToolGroup);
+        currentAgentBubble.appendChild(currentToolGroup);
     }
     
     const capsule = document.createElement('div');
@@ -232,7 +233,7 @@ function createToolCapsule(name, args, call_id) {
     };
     
     currentToolGroup.appendChild(capsule);
-    currentTurnContainer.appendChild(outputDiv); 
+    currentAgentBubble.appendChild(outputDiv); 
     
     if (call_id) activeToolCapsules[call_id] = { capsule, outputDiv };
     scrollToBottom();
@@ -276,18 +277,21 @@ function updateToolCapsule(name, output, call_id) {
 function appendAgentChunk(content) {
     if (!currentTurnContainer) ensureTurnContainer();
     
-    // Breaking reasoning/tool sequence
+    // Breaking reasoning sequence
     currentThoughtContainer = null;
     
-    if (!currentAgentBubble) {
-        currentAgentBubble = document.createElement('div');
-        currentAgentBubble.className = 'agent-text';
-        currentTurnContainer.appendChild(currentAgentBubble);
+    // To maintain chronological order relative to tool capsules,
+    // we only reuse the text block if it was the VERY LAST thing added to the bubble.
+    let textEl = currentAgentBubble.lastElementChild;
+    if (!textEl || !textEl.classList.contains('agent-text-content')) {
+        textEl = document.createElement('div');
+        textEl.className = 'agent-text-content';
+        currentAgentBubble.appendChild(textEl);
     }
     
-    const raw = (currentAgentBubble.dataset.raw || "") + content;
-    currentAgentBubble.dataset.raw = raw;
-    currentAgentBubble.innerHTML = window.marked ? marked.parse(raw) : raw;
+    const raw = (textEl.dataset.raw || "") + content;
+    textEl.dataset.raw = raw;
+    textEl.innerHTML = window.marked ? marked.parse(raw) : raw;
     scrollToBottom();
 }
 
@@ -310,22 +314,6 @@ function stopExecution() {
     }
 }
 
-function ensureThinkingIndicator(status) {
-    let indicator = document.getElementById('working-indicator');
-    if (!indicator) {
-        indicator = document.createElement('div');
-        indicator.id = 'working-indicator';
-        indicator.className = 'thinking-indicator';
-        indicator.innerHTML = '<div class="thinking-dot"></div><span class="indicator-text"></span>';
-        chatHistory.appendChild(indicator);
-    }
-    indicator.querySelector('.indicator-text').textContent = status.toUpperCase();
-}
-
-function removeThinkingIndicator() {
-    const ind = document.getElementById('working-indicator');
-    if (ind) ind.remove();
-}
 
 // Event Listeners
 sendBtn.addEventListener('click', sendMessage);

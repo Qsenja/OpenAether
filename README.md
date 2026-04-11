@@ -4,11 +4,12 @@ OpenAether is an intelligent desktop agent framework tailored for **Arch Linux**
 
 ## 🚀 Features
 
-- **State-of-the-art Intelligence**: Powered by Qwen 2.5 14B (via Ollama) and integrated with a high-performance reasoning engine.
-- **Native Hyprland Integration**: Aware of your open windows and workspaces.
-- **Agentic Tools**: Ability to run shell commands, manage files, search the web (via SearXNG), and interact with your system directly.
-- **Electron UI**: A modern, responsive interface for interacting with your AI agent.
-- **Fast Dispatch**: Aether Spark layer for instant responses and common task acceleration.
+- **State-of-the-art Intelligence**: Powered by Qwen 2.5 (via Ollama) and integrated with the Qwen-Agent reasoning framework.
+- **Native Hyprland Awareness**: Deep integration with Arch Linux and Hyprland window management.
+- **JIT Tool Discovery**: A high-performance discovery engine that dynamically loads skills only when needed, minimizing context bloat.
+- **System Browser Hand-off**: Integrated link redirection that opens all external URLs in your default system browser (Firefox/Chrome/etc.).
+- **Transparent Session Logging**: Full conversation transcripts including reasoning, tool calls, and results stored locally in `backend/logs/`.
+- **Fast Dispatch**: Aether Spark layer for instant patterns and common task acceleration.
 
 ## 🛠️ Project Structure
 

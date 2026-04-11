@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Unified Package Manager for OpenEtude
+# Unified Package Manager for OpenAether
 # Priority: pacman (official) -> yay (AUR) -> npm (node)
 
 ACTION=$1

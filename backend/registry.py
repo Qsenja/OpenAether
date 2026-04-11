@@ -2,12 +2,42 @@ import asyncio
 import difflib
 import os
 import yaml
+import json
+import importlib
+import glob
+import asyncio
+import json5
 from logger import global_logger
+
+# Global loop holder for cross-thread sync-to-async bridging
+_MAIN_LOOP = None
+
+def set_main_loop(loop):
+    global _MAIN_LOOP
+    _MAIN_LOOP = loop
+
+try:
+    from qwen_agent.tools.base import BaseTool, register_tool, TOOL_REGISTRY
+except ImportError:
+    # Define a dummy BaseTool if the library isn't installed yet
+    class BaseTool:
+        def __init__(self, cfg=None):
+            self.cfg = cfg or {}
+        def call(self, params: str, **kwargs) -> str:
+            raise NotImplementedError
+    
+    def register_tool(name):
+        def decorator(cls):
+            return cls
+        return decorator
+    
+    TOOL_REGISTRY = {}
 
 class ToolRegistry:
     def __init__(self):
-        self.tools = {}
-        self.schemas = []
+        self.tools = {}      # dict[str, callable | BaseTool]
+        self.schemas = []    # list[dict]
+        self.tool_instances = {} # dict[str, BaseTool] for official Qwen tools
         self.knowledge = {}  # Static documentation/tips
         # Aliases: common names the model might hallucinate -> real tool names
         self.aliases = self._load_aliases()
@@ -28,9 +58,85 @@ class ToolRegistry:
                 "shell": "run_command"
             }
 
-    def register(self, name, description, parameters):
+    def register(self, name_or_class, description=None, parameters=None):
+        """
+        Decorator or method to register a tool.
+        Supports both functions (legacy) and Qwen-Agent BaseTool classes.
+        """
+        if isinstance(name_or_class, type) and issubclass(name_or_class, BaseTool):
+            # Registering a class
+            cls = name_or_class
+            tool_name = getattr(cls, 'name', None)
+            if not tool_name:
+                # Convert CamelCase to snake_case
+                import re
+                name = cls.__name__
+                tool_name = re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower()
+                
+            self.tools[tool_name] = cls
+            
+            # Also register with Qwen-Agent if available
+            if tool_name not in TOOL_REGISTRY:
+                register_tool(tool_name)(cls)
+
+            # We don't instantiate immediately; will be done during execution or export
+            desc = getattr(cls, 'description', 'No description.')
+            params = getattr(cls, 'parameters', {})
+            self.schemas.append({
+                'type': 'function',
+                'function': {
+                    'name': tool_name,
+                    'description': desc,
+                    'parameters': params
+                }
+            })
+            return cls
+
+        # Registering a function (legacy decorator usage)
+        name = name_or_class
         def decorator(func):
             self.tools[name] = func
+            
+            # BRIDGE: Wrap function in a BaseTool class for Qwen-Agent compatibility
+            class WrappedTool(BaseTool):
+                def __init__(self, cfg=None):
+                    super().__init__(cfg)
+                    # Store references for use in call()
+                    self.func = func # Capture the actual function
+                    self.func_name = name
+                
+                def call(self, params: str, **kwargs) -> str:
+                    # Assistant calls this with a JSON string of arguments
+                    args = json5.loads(params)
+                    # Resolve naming coercion if needed
+                    coerced = registry._coerce_args(self.func_name, args)
+                    
+                    try:
+                        if asyncio.iscoroutinefunction(self.func):
+                            # BRIDGE: Run async skill from sync context safely
+                            loop = _MAIN_LOOP or asyncio.get_event_loop()
+                            if loop.is_running():
+                                # Run in the main event loop thread
+                                future = asyncio.run_coroutine_threadsafe(self.func(**coerced), loop)
+                                res = future.result() # Blocks caller thread until async work is done
+                            else:
+                                # Loop not running (rare/cli mode), run normally
+                                res = asyncio.run(self.func(**coerced))
+                        else:
+                            res = self.func(**coerced)
+                        return json.dumps(res, ensure_ascii=False)
+                    except Exception as e:
+                        return json.dumps({"status": "error", "message": f"Bridge error: {str(e)}"})
+
+            # Setting metadata on the bridge class
+            WrappedTool.name = name
+            WrappedTool.description = description
+            WrappedTool.parameters = parameters
+
+            # Register the bridge with Qwen-Agent
+            if name not in TOOL_REGISTRY:
+                register_tool(name)(WrappedTool)
+
             self.schemas.append({
                 'type': 'function',
                 'function': {
@@ -41,6 +147,31 @@ class ToolRegistry:
             })
             return func
         return decorator
+
+    def load_skills(self):
+        """Mechanically import all skill modules to trigger registration."""
+        skills_dir = os.path.join(os.path.dirname(__file__), "skills")
+        if not os.path.exists(skills_dir):
+            return
+            
+        skill_files = glob.glob(os.path.join(skills_dir, "*.py"))
+        for f in skill_files:
+            module_name = os.path.basename(f)[:-3]
+            if module_name != "__init__":
+                try:
+                    # Import as skills.filename
+                    importlib.import_module(f"skills.{module_name}")
+                    global_logger.log_message("system", f"[registry] Loaded skill module: {module_name}")
+                except Exception as e:
+                    global_logger.log_message("system", f"[registry] Failed to load skill {module_name}: {e}")
+
+    def get_tool_schema(self, name: str) -> dict:
+        """Get the JSON schema for a specific tool."""
+        resolved = self.resolve_name(name)
+        for s in self.schemas:
+            if s['function']['name'] == resolved:
+                return s
+        return None
 
     def register_knowledge(self, name: str, content: str = None):
         """Register static documentation or tips. Can be used as a decorator or direct call."""
@@ -194,10 +325,32 @@ class ToolRegistry:
         if resolved in self.tools:
             try:
                 coerced_args = self._coerce_args(resolved, args)
-                func = self.tools[resolved]
-                if asyncio.iscoroutinefunction(func):
-                    return await func(**coerced_args)
-                return func(**coerced_args)
+                func_or_cls = self.tools[resolved]
+                
+                if isinstance(func_or_cls, type) and issubclass(func_or_cls, BaseTool):
+                    # Instantiate on demand (singleton-ish within the registry session if needed, 
+                    # but for now we just run it).
+                    if resolved not in self.tool_instances:
+                        self.tool_instances[resolved] = func_or_cls()
+                    
+                    tool_inst = self.tool_instances[resolved]
+                    # Qwen BaseTool.call expects JSON string or dict? Usually a string for the agent.
+                    # Registry expects to return a Python object.
+                    if asyncio.iscoroutinefunction(tool_inst.call):
+                        result = await tool_inst.call(json.dumps(coerced_args))
+                    else:
+                        result = tool_inst.call(json.dumps(coerced_args))
+                    
+                    # result is usually a JSON string from BaseTool.call
+                    try:
+                        return json.loads(result)
+                    except:
+                        return result
+
+                # Legacy function-based execution
+                if asyncio.iscoroutinefunction(func_or_cls):
+                    return await func_or_cls(**coerced_args)
+                return func_or_cls(**coerced_args)
             except Exception as e:
                 return {"status": "error", "message": f"Error executing tool {resolved}: {str(e)}"}
         return {"status": "error", "message": f"Tool '{name}' not found. Available tools: {', '.join(list(self.tools.keys())[:10])}..."}

@@ -10,12 +10,12 @@ import io
 import contextlib
 from datetime import datetime
 import ollama
-from registry import registry
+from registry import registry, BaseTool
 from logger import global_logger
 from shell_manager import global_shell
 
 # --- CONFIGURATION ---
-MEMORY_PATH = os.path.expanduser("~/.config/openetude/memory.json")
+MEMORY_PATH = os.path.expanduser("~/.config/openaether/memory.json")
 TRANSLATE_MODEL = "translategemma:4b"
 
 # --- MEMORY LOGIC ---
@@ -93,7 +93,7 @@ async def recall(key: str = None):
 async def set_timer(seconds: int, label: str = "Timer"):
     async def _run():
         await asyncio.sleep(seconds)
-        subprocess.run(["notify-send", "-u", "critical", "-t", "0", "⏰ Timer abgelaufen!", label])
+        subprocess.run(["notify-send", "-u", "critical", "-t", "0", "⏰ Timer expired!", label])
     asyncio.create_task(_run())
     return {"status": "success", "message": f"Timer '{label}' set for {seconds}s."}
 
@@ -117,12 +117,15 @@ async def schedule_task(commands: str, delay_seconds: int, label: str = "schedul
     cmd = ["systemd-run", "--user", f"--on-active={delay_seconds}s", f"--description={label}", "/bin/bash", "-c", commands]
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode == 0:
-        return {"status": "success", "message": f"Task '{label}' scheduled."}
+        combined = res.stdout + res.stderr
+        unit_match = re.search(r'unit: ([a-zA-Z0-9.-]+)', combined)
+        unit = unit_match.group(1) if unit_match else "unknown"
+        return {"status": "success", "message": f"Task '{label}' scheduled. It will run in {delay_seconds}s.", "unit": unit}
     return {"status": "error", "message": res.stderr}
 
 @registry.register(
     "get_current_datetime",
-    "Get the current date and time (ISO format or human-readable). Use this for scheduling or checking the time.",
+    "Get the current date and time (ISO format or human-readable).",
     {}
 )
 def get_current_datetime():
@@ -137,12 +140,7 @@ def get_current_datetime():
 # --- AI UTILITIES ---
 LANGUAGE_MAP = {
     "german": ("German", "de"), "deutsch": ("German", "de"), "de": ("German", "de"),
-    "english": ("English", "en"), "englisch": ("English", "en"), "en": ("English", "en"),
-    "french": ("French", "fr"), "französisch": ("French", "fr"), "fr": ("French", "fr"),
-    "spanish": ("Spanish", "es"), "spanisch": ("Spanish", "es"), "es": ("Spanish", "es"),
-    "latin": ("Latin", "la"), "latein": ("Latin", "la"), "la": ("Latin", "la"),
-    "japanese": ("Japanese", "ja"), "japanisch": ("Japanese", "ja"), "ja": ("Japanese", "ja"),
-    "dutch": ("Dutch", "nl"), "niederländisch": ("Dutch", "nl"), "nl": ("Dutch", "nl")
+    "english": ("English", "en"), "englisch": ("English", "en"), "en": ("English", "en")
 }
 
 def _resolve_lang(lang_input: str) -> tuple[str, str]:
@@ -151,7 +149,7 @@ def _resolve_lang(lang_input: str) -> tuple[str, str]:
 
 @registry.register(
     "translate",
-    "Translate a string in memory. Does NOT read or write files. Perform file I/O separately.",
+    "Translate text from one language to another.",
     {
         "type": "object",
         "properties": {
@@ -166,20 +164,11 @@ async def translate(text: str, target_lang: str, source_lang: str = "auto"):
     target_name, target_code = _resolve_lang(target_lang)
     source_name, source_code = _resolve_lang(source_lang)
     
-    if source_lang.lower() == "auto":
-        source_name = "Auto-detected"
-        source_code = "auto"
-
     prompt = (
-        f"You are a professional {source_name} ({source_code}) to {target_name} ({target_code}) translator. "
-        f"Your goal is to accurately convey the meaning and nuances of the original {source_name} text "
-        f"while adhering to {target_name} grammar, vocabulary, and cultural sensitivities.\n"
-        f"Produce only the {target_name} translation, without any additional explanations or commentary. "
-        f"Please translate the following {source_name} text into {target_name}:\n\n\n"
+        f"Translate the following to {target_name}. Output only the translation:\n\n"
         f"{text}"
     )
 
-    global_logger.log_message("system", f"[agent] Translating from {source_name} to {target_name}...")
     try:
         response = ollama.chat(model=TRANSLATE_MODEL, messages=[{"role": "user", "content": prompt}])
         return {"status": "success", "translation": response["message"]["content"].strip()}
@@ -187,32 +176,8 @@ async def translate(text: str, target_lang: str, source_lang: str = "auto"):
         return {"status": "error", "message": str(e)}
 
 @registry.register(
-    "summarize_file",
-    "Summarize file contents using AI.",
-    {
-        "type": "object",
-        "properties": {
-            "path": {"type": "string", "description": "Path to file"},
-            "max_chars": {"type": "integer", "default": 8000}
-        },
-        "required": ["path"]
-    }
-)
-async def summarize_file(path: str, max_chars: int = 8000):
-    expanded = os.path.expanduser(path)
-    try:
-        with open(expanded, "r", encoding="utf-8", errors="replace") as f:
-            content = f.read(max_chars)
-        from main import MODEL # Use current core model
-        prompt = f"Summarize concisely:\n\n{content}"
-        response = ollama.chat(model=MODEL, messages=[{"role": "user", "content": prompt}])
-        return {"status": "success", "summary": response["message"]["content"].strip()}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-@registry.register(
     "run_python",
-    "Execute a Python code snippet and return output.",
+    "Execute a Python code snippet.",
     {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}
 )
 def run_python(code: str):
@@ -226,37 +191,69 @@ def run_python(code: str):
         return {"status": "error", "error": str(e)}
 
 # --- CORE LOGIC (JIT) ---
+
+@registry.register
+class CalculateDiscount(BaseTool):
+    description = 'Calculates the final price after applying a discount percentage. Use this for math examples.'
+    parameters = {
+        'type': 'object',
+        'properties': {
+            'original_price': {'type': 'number', 'description': 'The initial price before discount'},
+            'discount_percent': {'type': 'number', 'description': 'The discount percentage (0-100)'}
+        },
+        'required': ['original_price', 'discount_percent']
+    }
+
+    def call(self, params: str, **kwargs) -> str:
+        try:
+            import json5
+            args = json5.loads(params)
+            price = args['original_price']
+            discount = args['discount_percent']
+            final_price = price * (1 - (discount / 100))
+            # Strict alignment with guide format
+            return json.dumps({"final_price": final_price}, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"error": f"Execution failed: {str(e)}"})
+
 @registry.register("report_error", "Report a task failure.", {"type": "object", "properties": {"issue": {"type": "string"}}, "required": ["issue"]})
 def report_error(issue: str, details: str = ""):
     global_logger.log_error_report("agent", issue, details)
     return {"status": "success"}
 
-@registry.register(
-    "discover_tools",
-    "Search the INTERNAL SKILL DATABASE for a specific function signature. Use this ONLY to load new tools into memory (e.g. 'installing', 'email', 'timer'). NOT for searching files or system info.",
-    {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
-)
-def discover_tools(query: str):
-    query = query.lower().strip()
-    results = registry.search_tools(query)
-    
-    DOMAIN_TIPS = {
-        "network": "WiFi -> 'get_wifi_info'. Scan -> 'scan_network'. Host info -> 'get_device_info(ip)'.",
-        "app": "MANDATORY: Launch apps via 'open_app(name)'. Do NOT use run_command.",
-        "file": "Search -> 'search_files'. Read -> 'read_file'. Write -> 'write_file'.",
-        "system": "Info -> 'get_system_info'. Install -> 'install_software'. Command -> 'run_command'.",
-#        "desktop": "Workspaces -> 'switch_workspace'. Screen -> 'take_screenshot'. OCR -> 'find_on_screen'.",
-        "media": "Play -> 'play_audio'. Record -> 'record_audio'. Volume -> 'set_volume'.",
-        "datetime": "Time/Date -> 'get_current_datetime'. Timer -> 'set_timer'. Schedule -> 'schedule_task'."
+@registry.register
+class DiscoverTools(BaseTool):
+    name = "discover_tools"
+    description = "Search the INTERNAL SKILL DATABASE for a specific function signature. Use this ONLY to load new tools into memory."
+    parameters = {
+        "type": "object",
+        "properties": {"query": {"type": "string", "description": "Keyword to search for"}},
+        "required": ["query"]
     }
-    
-    output = ["Discovered tools:"]
-    for r in results.get("tools", []):
-        output.append(f"- {r['function']['name']}: {r['function']['description']}")
-    
-    for domain, tip in DOMAIN_TIPS.items():
-        if domain in query or (domain == "system" and "install" in query):
-            output.append(f"\nTIP: {tip}")
-            break
+
+    def call(self, params: str, **kwargs) -> str:
+        try:
+            import json5
+            args = json5.loads(params)
+            query = args.get('query', '').lower().strip()
             
-    return {"status": "success", "message": "\n".join(output)}
+            results = registry.search_tools(query)
+            found_tools = [r['function']['name'] for r in results.get("tools", [])]
+            
+            if not results.get("tools") and not results.get("knowledge"):
+                return json.dumps({"error": f"No tools found matching query '{query}'."}, ensure_ascii=False)
+
+            output = ["Discovered tools (now being loaded):"]
+            for r in results.get("tools", []):
+                # Include the FULL schema so the model knows parameters immediately
+                schema_block = json.dumps(r['function'], indent=2, ensure_ascii=False)
+                output.append(schema_block)
+            
+            return json.dumps({
+                "found_tools": found_tools, 
+                "loaded_tools": found_tools,
+                "details": "\n".join(output),
+                "instruction": "SUCCESS: These tools are now LOADED and ready for use. Proceed with the task using these tools directly. DO NOT call discover_tools again for these same functions."
+            }, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"error": str(e)})

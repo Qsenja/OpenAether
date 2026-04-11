@@ -71,7 +71,7 @@ def get_installed_apps_index():
     return sorted(list(apps))
 
 # --- FILESYSTEM ---
-BACKUP_DIR = os.path.expanduser("~/.cache/openetude/backups")
+BACKUP_DIR = os.path.expanduser("~/.cache/openaether/backups")
 
 def _create_backup(path: str):
     """Create a backup of an existing file before it is overwritten."""
@@ -107,7 +107,11 @@ def _normalize_path(path: str):
             
     return p, None
 
-@registry.register("read_file", "Read file content. Parameters: 'path' ONLY. Do NOT pass translation or search arguments.", {"type":"object", "properties":{"path":{"type":"string"}}, "required":["path"]})
+@registry.register(
+    "read_file", 
+    "Read file content as text. NEVER use this on binary executables (ELFs) or files in /usr/bin or /usr/lib. Use 'get_software_version' for software inspection.", 
+    {"type":"object", "properties":{"path":{"type":"string"}}, "required":["path"]}
+)
 def read_file(path: str):
     # Hallucination Guard
     if "/home/user" in path:
@@ -116,8 +120,22 @@ def read_file(path: str):
     
     try:
         p, warning = _normalize_path(path)
+        
+        # Binary Guard: Refuse to read if it's in a known binary dir or has binary extension
+        BINARY_EXTS = {".exe", ".so", ".bin", ".o", ".a", ".pyc", ".node"}
+        BINARY_DIRS = {"/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/lib", "/lib"}
+        
+        if any(p.endswith(ext) for ext in BINARY_EXTS) or any(p.startswith(d) for d in BINARY_DIRS):
+            # Check if it's actually an ELF or other binary (simple check)
+            with open(p, "rb") as f:
+                header = f.read(4)
+                if b"\x7fELF" in header or b"MZ" in header:
+                    return {"status": "error", "message": f"BINARY_ERROR: Content at '{path}' appears to be a binary executable. Use 'get_software_version' or 'run_command' (e.g. strings, ldd) to inspect it instead."}
+
         with open(p, "r", errors="replace") as f:
-            res = {"status": "success", "content": f.read()}
+            # Limit read size for safety
+            content = f.read(1_000_000) # Max 1MB
+            res = {"status": "success", "content": content}
             if warning: res["message"] = warning
             return res
     except Exception as e: return {"status": "error", "message": str(e)}
@@ -238,3 +256,53 @@ async def install_software(name):
 async def kill_process(target: str):
     cmd = f"kill -9 {target}" if target.isdigit() else f"pkill {target}"
     return await run_command(cmd)
+
+@registry.register(
+    "get_software_version",
+    "Get version AND detailed installation info (date, reason, source). MANDATORY for locally installed software questions on Arch Linux (Pacman). Use this BEFORE web_search.",
+    {"type": "object", "properties": {"name": {"type": "string", "description": "Package name or binary"}}, "required": ["name"]}
+)
+async def get_software_version(name: str):
+    # 1. Try Pacman (Reliable for system packages)
+    if shutil.which("pacman"):
+        # Try -Qi (Information) first for more detail
+        res = subprocess.run(["pacman", "-Qi", name], capture_output=True, text=True)
+        if res.returncode == 0:
+            lines = res.stdout.strip().split("\n")
+            info = {}
+            for line in lines:
+                if ":" in line:
+                    k, v = line.split(":", 1)
+                    info[k.strip()] = v.strip()
+            
+            return {
+                "status": "success", 
+                "method": "pacman", 
+                "version": info.get("Version"),
+                "install_date": info.get("Install Date"),
+                "install_reason": info.get("Install Reason"),
+                "packager": info.get("Packager"),
+                "source": "official_repo" if "Extra" in info.get("Repository", "") or "Core" in info.get("Repository", "") else "AUR/External"
+            }
+        
+        # Fallback to -Q (simple query)
+        res = subprocess.run(["pacman", "-Q", name], capture_output=True, text=True)
+        if res.returncode == 0:
+            parts = res.stdout.strip().split()
+            version = parts[1] if len(parts) > 1 else parts[0]
+            return {"status": "success", "method": "pacman_simple", "version": version}
+
+    # 2. Try --version (Common for CLI tools)
+    binary = shutil.which(name)
+    if binary:
+        try:
+            # Try common flags
+            for flag in ["--version", "-v", "version"]:
+                res = subprocess.run([binary, flag], capture_output=True, text=True, timeout=2)
+                if res.returncode == 0 and res.stdout.strip():
+                    version = res.stdout.strip().split("\n")[0]
+                    return {"status": "success", "method": "binary_flag", "output": version}
+        except:
+            pass
+
+    return {"status": "error", "message": f"Could not determine version for '{name}'. Software might not be installed or doesn't support version flags."}

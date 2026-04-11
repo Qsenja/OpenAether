@@ -1,5 +1,5 @@
 # ============================================================
-# OpenEtude Quick Dispatch Command Patterns
+# OpenAether Quick Dispatch Command Patterns
 # ============================================================
 # Each pattern maps trigger words to a tool call.
 # Users can add/edit triggers without touching Python code.
@@ -61,7 +61,7 @@ fixed_commands:
       - hey
       - wer bist du
       - wer bist du?
-    response: "Ich bin Aether Core, dein Forschungs-Agent für Hyprland. Wie kann ich dir heute helfen?"
+    response: "I am Aether Core, your research agent for Hyprland. How can I help you today?"
 
   - keywords: [mute, stumm, stummschalten, stummschaltung]
     tool: set_volume

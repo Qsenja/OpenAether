@@ -12,8 +12,16 @@ FILLER_WORDS = {
 }
 
 # Regex to detect complexity markers that should force AI reasoning
-# Matches "in wkX", "auf workspace X", multi-step commands like "and then", etc.
-COMPLEXITY_REGEX = re.compile(r'\b(in|auf|zu|nach)\s+(wk|workspace|arbeitsbereich)\b|\b(and\s+then|und\s+dann|danach)\b', re.IGNORECASE)
+# Matches:
+# - Workspace switching: "in wkX", "auf workspace X"
+# - Sequential tasks: "and then", "und dann"
+# - Temporal markers (Scheduling): "in 5 min", "nach 10 sekunden", "um 12 uhr"
+COMPLEXITY_REGEX = re.compile(
+    r'\b(in|auf|zu|nach)\s+(wk|workspace|arbeitsbereich)\b|'
+    r'\b(and\s+then|und\s+dann|danach)\b|'
+    r'\b(in|nach|after|um|at)\s+\d+\s*(m|min|minuten|minutes|s|sec|sekunden|seconds|h|stunden|hours)\b', 
+    re.IGNORECASE
+)
 
 _config = None
 
@@ -35,14 +43,14 @@ def _load_config():
 def _get_pre_msg(tool, args):
     """Generates a friendly user message before execution."""
     if tool == "open_app":
-        return f"Starte {args.get('command')}..."
+        return f"Starting {args.get('command')}..."
     if tool == "kill_process":
-        return f"Beende {args.get('target')}..."
+        return f"Terminating {args.get('target')}..."
     if tool == "switch_workspace":
-        return f"Wechsle zu Workspace {args.get('number')}..."
+        return f"Switching to Workspace {args.get('number')}..."
     if tool == "web_search":
-        return f"Suche nach '{args.get('query')}' im Web..."
-    return "Verstehe, ich kümmere mich darum..."
+        return f"Searching for '{args.get('query')}' on the web..."
+    return "I understand, I'm on it..."
 
 def _resolve_target(value, context):
     """Simple context resolution (e.g. 'it' -> last app)"""
@@ -155,8 +163,15 @@ async def dispatch(message: str, registry, context: list = None) -> dict | None:
                         global_logger.log_message("system", f"[quick_dispatch] Abort: Pattern '{pat_name}' needs an integer but none found.")
                         continue
                     value = int(num_match.group(0))
+                elif arg_cfg.get("type") == "word":
+                    # Take only the first word/token for 'word' type (safety against sentence-swallowing)
+                    value = clean_msg.split()[0] if clean_msg.split() else ""
                 else:
-                    value = clean_msg # Use the whole cleaned string as the argument (allows spaces)
+                    value = clean_msg # Use the whole cleaned string for other types (allows spaces if requested)
+
+                if not value:
+                    global_logger.log_message("system", f"[quick_dispatch] Abort: Pattern '{pat_name}' result is empty.")
+                    continue
 
                 args = {arg_cfg["name"]: value}
 

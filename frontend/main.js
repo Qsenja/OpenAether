@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, shell } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 
@@ -21,6 +21,19 @@ function createWindow() {
   });
 
   mainWindow.loadFile('index.html');
+  
+  // Open links in external browser
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+      shell.openExternal(url);
+      return { action: 'deny' };
+  });
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+      if (url !== mainWindow.webContents.getURL()) {
+          event.preventDefault();
+          shell.openExternal(url);
+      }
+  });
 
   mainWindow.on('closed', function () {
     mainWindow = null;
@@ -36,7 +49,8 @@ function startBackend() {
   const pythonExe = require('fs').existsSync(venvPath) ? venvPath : 'python3';
 
   console.log(`Starting backend with: ${pythonExe}`);
-  pythonProcess = spawn(pythonExe, [mainPyPath]);
+  // Use -u for unbuffered binary stdout/stderr
+  pythonProcess = spawn(pythonExe, ['-u', mainPyPath]);
 
   pythonProcess.stdout.on('data', (data) => {
     console.log(`Backend: ${data}`);

@@ -1,4 +1,13 @@
 post_install() {
+    echo ">>> Creating Python virtual environment in /opt/openaether/venv..."
+    python -m venv --system-site-packages /opt/openaether/venv
+    /opt/openaether/venv/bin/pip install --upgrade pip
+    /opt/openaether/venv/bin/pip install \
+        ollama \
+        qwen-agent[code_interpreter,rag] \
+        json5 \
+        soundfile
+
     echo ">>> Pulling SearXNG Docker image..."
     docker pull searxng/searxng
 

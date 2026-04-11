@@ -6,10 +6,15 @@ __pycache__/
 .pytest_cache/
 .coverage
 .cache/
+.env
+.venv
+env/
 
 # Node / Electron
 node_modules/
 dist/
+out/
+.npm/
 
 # Logs
 *.log
@@ -20,6 +25,10 @@ backend/logs/
 Thumbs.db
 /tmp/
 *.tmp
+
+# IDEs
+.vscode/
+.idea/
 
 # Project Specific
 .agents/
