@@ -1,0 +1,73 @@
+# ============================================================
+# OpenEtude Tool Aliases
+# ============================================================
+# This file maps hallucinated or common names the model might use
+# to the actual registered tool names in the backend.
+# ============================================================
+
+# Web search aliases
+google_search: web_search
+search: web_search
+internet_search: web_search
+bing_search: web_search
+duckduckgo_search: web_search
+searxng_search: web_search
+
+# Shell/command aliases
+bash: run_command
+shell: run_command
+execute: run_command
+execute_command: run_command
+terminal: run_command
+cmd: run_command
+exec: run_command
+
+# URL/web aliases
+read_webpage: fetch_url
+browse: fetch_url
+open_url: fetch_url
+get_url: fetch_url
+http_get: fetch_url
+fetch: fetch_url
+
+# Screenshot aliases
+screenshot: take_screenshot
+capture_screen: take_screenshot
+
+# App launch aliases
+launch: open_app
+start_app: open_app
+run_app: open_app
+
+# System info aliases
+system_info: get_system_info
+sysinfo: get_system_info
+hardware_info: get_system_info
+
+# Install/uninstall aliases
+install: install_software
+uninstall: uninstall_software
+uninstall_package: uninstall_software
+remove_package: uninstall_software
+remove_software: uninstall_software
+install_package: install_software
+apt_install: install_software
+pacman_install: install_software
+yay_install: install_software
+lösch_app: uninstall_software
+lösche_app: uninstall_software
+software_löschen: uninstall_software
+
+# Process control aliases
+beenden: kill_process
+stoppen: kill_process
+schließen: kill_process
+mach_zu: kill_process
+töten: kill_process
+stop_app: kill_process
+
+# Python execution aliases
+install_python: run_python
+execute_python: run_python
+python: run_python
+run: run_command

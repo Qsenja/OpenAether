@@ -1,0 +1,12 @@
+{
+  "name": "openaether-frontend",
+  "version": "0.1.0",
+  "main": "main.js",
+  "scripts": {
+    "start": "ELECTRON_OZONE_PLATFORM_HINT=x11 electron . --disable-gpu-sandbox --disable-gpu-vsync"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^30.0.0"
+  }
+}

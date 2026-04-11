@@ -1,0 +1,75 @@
+# ============================================================
+# OpenEtude Quick Dispatch Command Patterns
+# ============================================================
+# Each pattern maps trigger words to a tool call.
+# Users can add/edit triggers without touching Python code.
+#
+# Pattern fields:
+#   triggers:  list of words that activate this command
+#   tool:      the registered tool name to call
+#   arg:       {name: str, type: word|integer|float}
+#              'word' extracts the next word/token after the trigger
+#
+# Fixed commands have no argument — just a keyword → tool + static args.
+# ============================================================
+
+patterns:
+
+  open:
+    triggers: [open, launch, start, run, öffne, oeffne, öffnen, oeffnen, starte, execute, mach auf]
+    tool: open_app
+    arg: {name: command, type: word}
+
+  close:
+    triggers: [close, kill, stop, terminate, schließe, schließ, beende, beenden, stoppe, stoppen, schliessen, töte, mach zu, weg mit]
+    tool: kill_process
+    arg: {name: target, type: word}
+
+  workspace:
+    # Matches: "ws 3", "wk 2", "workspace 5"
+    triggers: [ws, wk, workspace, arbeitsfläche, arbeitsflaeche, desktop]
+    tool: switch_workspace
+    arg: {name: number, type: integer}
+
+  install:
+    triggers: [install, installiere, installier, lade dir, lad dir, hol dir]
+    tool: install_software
+    arg: {name: name, type: word}
+
+  uninstall:
+    triggers: [uninstall, deinstalliere, deinstallier, entferne, entfern, remove, delete, lösch, lösche, loesch, loesche, löschen, loeschen]
+    tool: uninstall_software
+    arg: {name: name, type: word}
+
+  volume:
+    # Matches: "volume 60", "lautstärke 80", "vol 50"
+    triggers: [volume, lautstärke, lautstaerke, vol]
+    tool: set_volume
+    arg: {name: percent, type: integer}
+
+  move_window:
+    # Matches: "move window to workspace 3"
+    triggers: [move window, verschiebe fenster, schiebe fenster, move to workspace]
+    tool: move_window_to_workspace
+    arg: {name: number, type: integer}
+
+# Fixed commands: keyword match → tool with static args (no extraction needed)
+fixed_commands:
+  - keywords: [hi, hallo, hey, wer bist du, wer bist du?]
+    response: "Ich bin Aether Core, dein Forschungs-Agent für Hyprland. Wie kann ich dir heute helfen?"
+
+  - keywords: [mute, stumm, stummschalten, stummschaltung]
+    tool: set_volume
+    args: {percent: 50, mute: true}
+
+  - keywords: [unmute, entstummen, ton an]
+    tool: set_volume
+    args: {percent: 50, mute: true}
+
+#  - keywords: [screenshot, bildschirmfoto, bildschirmaufnahme]
+#    tool: take_screenshot
+#    args: {}
+
+  - keywords: [get system info, systeminfo, sysinfo]
+    tool: get_system_info
+    args: {}

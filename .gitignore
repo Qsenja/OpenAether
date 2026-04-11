@@ -1,0 +1,39 @@
+# Python
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+.cache/
+backend/logs/*.log
+
+# Node / Electron
+node_modules/
+**/node_modules/
+frontend/dist/
+dist/
+
+# Temporary / OS
+.DS_Store
+Thumbs.db
+/tmp/
+*.tmp
+*.log
+
+# Project Specific
+.gemini/
+.agents/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+.env.*.local

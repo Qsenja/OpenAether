@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenAether</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body class="status-idle">
+    <div id="drag-region">
+        <div class="drag-handle"></div>
+    </div>
+    
+    <div id="app">
+        <main id="chat-history">
+            <!-- Messages and Tool Calls -->
+            <div class="message system brand-logo">
+                OpenAether
+            </div>
+        </main>
+
+        <div id="status-container">
+            <span id="status-dot"></span>
+            <span id="status-text">Idle</span>
+        </div>
+
+        <footer>
+            <div class="input-wrapper">
+                <div class="input-container">
+                    <input type="text" id="user-input" placeholder="Awaiting instruction..." autocomplete="off">
+                    <button id="send-btn" title="Send (Enter)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M7 11l5-5m0 0l5 5m-5-5v12"/>
+                        </svg>
+                    </button>
+                    <button id="stop-btn" class="hidden" title="Stop Process">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <rect x="6" y="6" width="12" height="12"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </footer>
+    </div>
+    <script src="renderer.js"></script>
+</body>
+</html>
