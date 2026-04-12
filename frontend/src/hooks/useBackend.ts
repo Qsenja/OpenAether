@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Command } from '@tauri-apps/plugin-shell';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 
 export type Block = 
   | { type: 'text'; content: string }
@@ -33,118 +33,47 @@ export interface ToolOutput {
 export function useBackend() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [status, setStatus] = useState<'idle' | 'thinking' | 'executing' | 'error'>('idle');
-  const [isConnected, setIsConnected] = useState(false);
+  const [isConnected, setIsConnected] = useState(true); // Tauri backend is always "connected" once ready
   const [isInitializing, setIsInitializing] = useState(true);
-  const ws = useRef<WebSocket | null>(null);
-  const backendProcess = useRef<any>(null);
-  const isSpawning = useRef(false);
   const isMounted = useRef(true);
 
   const logToTerminal = async (msg: string) => {
     try {
-      await invoke('log_message', { message: `[FRONTEND] ${msg}` });
+      await invoke('log_message', { message: msg });
     } catch (e) {
-      console.log(`[FRONTEND] ${msg}`);
+      console.log(msg);
     }
   };
-
-  const connect = useCallback(() => {
-    const socket = new WebSocket('ws://localhost:8765');
-    ws.current = socket;
-
-    socket.onopen = () => {
-      logToTerminal('WebSocket connected');
-      setIsConnected(true);
-      setIsInitializing(false);
-    };
-
-    socket.onclose = () => {
-      logToTerminal('WebSocket closed');
-      setIsConnected(false);
-      
-      // Auto-reconnect logic: Wait 2 seconds and try again 
-      // if it wasn't a deliberate stop and we aren't currently initializing
-      setTimeout(() => {
-        if (isMounted.current) {
-          logToTerminal('Attempting to reconnect...');
-          connect();
-        }
-      }, 2000);
-    };
-
-    socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      handleBackendMessage(data);
-    };
-
-    socket.onerror = (err) => {
-      logToTerminal(`WebSocket error: ${err}`);
-      setIsConnected(false);
-    };
-  }, []);
-
-  const spawnBackend = async () => {
-    if (isSpawning.current) return;
-    isSpawning.current = true;
-
-    try {
-      logToTerminal('Spawning backend from venv...');
-      // Use the alias 'venv-python' defined in capabilities/default.json
-      const command = Command.create('venv-python', ['../../backend/main.py']);
-      
-      command.stdout.on('data', line => {
-        invoke('log_message', { message: `[BACKEND] ${line}` });
-      });
-      
-      command.stderr.on('data', line => {
-        invoke('log_message', { message: `[BACKEND ERROR] ${line}` });
-      });
-
-      const child = await command.spawn();
-      backendProcess.current = child;
-      
-      // Wait a bit for the WS server to start
-      setTimeout(connect, 3000);
-    } catch (err) {
-      logToTerminal(`Spawn error: ${err}`);
-      setIsInitializing(false);
-      setStatus('error');
-    } finally {
-      isSpawning.current = false;
-    }
-  };
-
-  const retry = useCallback(() => {
-    setIsInitializing(true);
-    if (ws.current) ws.current.close();
-    spawnBackend();
-  }, []);
 
   useEffect(() => {
-    let mounted = true;
+    isMounted.current = true;
+    
+    // Listen for backend events
+    const unlisten = listen<any>('backend-event', (event) => {
+      handleBackendMessage(event.payload);
+    });
 
-    const init = async () => {
-      if (!isSpawning.current && !backendProcess.current) {
-        await spawnBackend();
-      } else if (backendProcess.current && !isConnected && !isInitializing) {
-        // If process exists but no connection, try connecting
-        connect();
+    // Initial status check
+    const checkStatus = async () => {
+      try {
+        await invoke('get_setup_status');
+        setIsInitializing(false);
+      } catch (e) {
+        logToTerminal(`Initial status check failed: ${e}`);
+        setIsInitializing(false);
       }
     };
 
-    init();
-    isMounted.current = true;
+    checkStatus();
 
     return () => {
       isMounted.current = false;
-      // In production, we might want to kill the process on unmount,
-      // but in dev, we let it persist to avoid double-spawn cycles.
-      // We only close the websocket if the app is truly closing.
+      unlisten.then(fn => fn());
     };
   }, []);
 
   const handleBackendMessage = (data: any) => {
-    logToTerminal(`Received event: ${data.type}`);
+    // logToTerminal(`Received event: ${data.type}`);
     switch (data.type) {
       case 'status_update':
         setStatus(data.status);
@@ -194,7 +123,6 @@ export function useBackend() {
             const lastBlock = seq[lastIdx];
             
             if (lastBlock && lastBlock.type === 'thought') {
-              // Create a NEW block object instead of mutating
               seq[lastIdx] = { ...lastBlock, content: lastBlock.content + data.content };
             } else {
               seq.push({ type: 'thought', content: data.content });
@@ -278,17 +206,34 @@ export function useBackend() {
     }
   };
 
-  const sendMessage = useCallback((content: string) => {
-    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-      setMessages((prev) => [...prev, { role: 'user', content }]);
-      ws.current.send(JSON.stringify({ type: 'user_message', content }));
+  const sendMessage = useCallback(async (content: string) => {
+    setMessages((prev) => [...prev, { role: 'user', content }]);
+    setStatus('thinking');
+    
+    try {
+      // Map frontend messages to Ollama format for the Rust call
+      const history = messages.map(m => ({
+        role: m.role === 'function' ? 'tool' : m.role,
+        content: m.content
+      }));
+
+      await invoke('send_message', { content, history });
+    } catch (e: any) {
+      logToTerminal(`Send Error: ${e}`);
+      setStatus('error');
     }
-  }, []);
+  }, [messages]);
 
   const stopGeneration = useCallback(() => {
-    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-      ws.current.send(JSON.stringify({ type: 'stop_request' }));
-    }
+    // In this Rust version, we might need a specific command to flag a stop
+    // For now, we'll just log it.
+    logToTerminal('Stop requested (not fully implemented in Rust agent yet)');
+  }, []);
+
+  const retry = useCallback(() => {
+    setIsInitializing(true);
+    // Restarting is handled by the OS in Tauri or via page refresh
+    window.location.reload();
   }, []);
 
   return { messages, status, isConnected, isInitializing, sendMessage, stopGeneration, retry };
