@@ -1,0 +1,27 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "shell:default",
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        { "name": "python3", "cmd": "python3", "args": true },
+        { "name": "python", "cmd": "python", "args": true },
+        { "name": "venv-python", "cmd": "/mnt/fa1e1b08-f9c5-4e11-8ce3-8a92fd8a3d46/projects/OpenAether/backend/venv/bin/python3", "args": true }
+      ]
+    },
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        { "name": "python3", "cmd": "python3", "args": true },
+        { "name": "python", "cmd": "python", "args": true },
+        { "name": "venv-python", "cmd": "/mnt/fa1e1b08-f9c5-4e11-8ce3-8a92fd8a3d46/projects/OpenAether/backend/venv/bin/python3", "args": true }
+      ]
+    }
+  ]
+}

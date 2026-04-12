@@ -107,7 +107,21 @@ class ToolRegistry:
                 
                 def call(self, params: str, **kwargs) -> str:
                     # Assistant calls this with a JSON string of arguments
-                    args = json5.loads(params)
+                    try:
+                        args = json5.loads(params)
+                    except Exception:
+                        # Fallback: try cleaning common LLM hallucination garbage (trailing braces, etc)
+                        import re
+                        try:
+                            # Extract everything between the first { and the last }
+                            match = re.search(r'(\{.*\})', params, re.DOTALL)
+                            if match:
+                                args = json5.loads(match.group(1))
+                            else:
+                                raise ValueError("No valid JSON found in params")
+                        except Exception as e:
+                            return json.dumps({"status": "error", "message": f"Invalid tool arguments: {str(e)}"})
+
                     # Resolve naming coercion if needed
                     coerced = registry._coerce_args(self.func_name, args)
                     
@@ -128,10 +142,13 @@ class ToolRegistry:
                     except Exception as e:
                         return json.dumps({"status": "error", "message": f"Bridge error: {str(e)}"})
 
+            # Pre-validate/default parameters to valid OpenAI schema
+            valid_params = parameters if parameters else {"type": "object", "properties": {}}
+
             # Setting metadata on the bridge class
             WrappedTool.name = name
             WrappedTool.description = description
-            WrappedTool.parameters = parameters
+            WrappedTool.parameters = valid_params
 
             # Register the bridge with Qwen-Agent
             if name not in TOOL_REGISTRY:
@@ -142,7 +159,7 @@ class ToolRegistry:
                 'function': {
                     'name': name,
                     'description': description,
-                    'parameters': parameters
+                    'parameters': valid_params
                 }
             })
             return func
@@ -199,6 +216,8 @@ class ToolRegistry:
             return "uninstall_software"
         if name.startswith("open_") and name != "open_app":
             return "open_app"
+        # Map tool to function for legacy support if needed
+        if name == "tool": return "function"
         # Alias match
         if name in self.aliases and self.aliases[name] in self.tools:
             print(f"[ALIAS] '{name}' -> '{self.aliases[name]}'")

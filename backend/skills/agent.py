@@ -173,7 +173,19 @@ async def translate(text: str, target_lang: str, source_lang: str = "auto"):
         response = ollama.chat(model=TRANSLATE_MODEL, messages=[{"role": "user", "content": prompt}])
         return {"status": "success", "translation": response["message"]["content"].strip()}
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        global_logger.log_message("system", f"[translate] Primary model {TRANSLATE_MODEL} failed: {e}. Trying fallback...")
+        try:
+            # Fallback to the main model (we assume qwen2.5:14b or whatever is configured in main)
+            # We import MODEL from main here to stay consistent
+            from main import MODEL as PRIMARY_MODEL
+            response = ollama.chat(model=PRIMARY_MODEL, messages=[{"role": "user", "content": prompt}])
+            return {
+                "status": "success", 
+                "translation": response["message"]["content"].strip(),
+                "note": f"Translated using fallback model {PRIMARY_MODEL}"
+            }
+        except Exception as e2:
+            return {"status": "error", "message": f"Translation failed on all models: {str(e2)}"}
 
 @registry.register(
     "run_python",

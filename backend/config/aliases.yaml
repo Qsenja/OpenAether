@@ -6,13 +6,13 @@
 # ============================================================
 
 # Web search aliases
-web_search: aether_search
-google_search: aether_search
-search: aether_search
-internet_search: aether_search
-bing_search: aether_search
-duckduckgo_search: aether_search
-searxng_search: aether_search
+web_search: web_search
+google_search: web_search
+search: web_search
+internet_search: web_search
+bing_search: web_search
+duckduckgo_search: web_search
+searxng_search: web_search
 
 # Shell/command aliases
 bash: run_command

@@ -102,9 +102,14 @@ MODEL = "qwen2.5:14b"
 SAMPLE_OPTIONS = {
     "temperature": 0.1,
     "top_p": 0.9,
-    "frequency_penalty": 1.1, # Renamed from repeat_penalty for OpenAI-compat
-    "stop": ["<|im_start|>", "<|im_end|>", "/think", "/no_think"]
+    "frequency_penalty": 1.1,
+    "stop": ["<|im_end|>", "/think", "/no_think"]
 }
+
+def filter_llm_params(cfg):
+    """Remove parameters that cause the OpenAI library to crash."""
+    allowed = {"temperature", "top_p", "stream", "stop", "max_tokens", "presence_penalty", "frequency_penalty"}
+    return {k: v for k, v in cfg.items() if k in allowed}
 
 async def check_searxng():
     """Verify SearXNG reachability and attempt auto-start via Docker if down."""
@@ -114,7 +119,10 @@ async def check_searxng():
     
     async def try_ping():
         try:
-            response = requests.get(f"{url}/search?q=ping", timeout=2)
+            # specifically test the JSON format since that's what we need
+            response = await asyncio.to_thread(
+                requests.get, f"{url}/search", params={"q": "ping", "format": "json"}, timeout=2
+            )
             return response.status_code == 200
         except:
             return False
@@ -124,20 +132,44 @@ async def check_searxng():
 
     print(f"SearXNG not reachable at {url}. Attempting auto-start via Docker...")
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "docker", "start", "searxng",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+        # Check if container exists
+        check_proc = await asyncio.create_subprocess_exec(
+            "docker", "ps", "-a", "--filter", "name=searxng", "--format", "{{.Names}}",
+            stdout=asyncio.subprocess.PIPE
         )
-        stdout, stderr = await proc.communicate()
+        stdout, _ = await check_proc.communicate()
+        container_exists = "searxng" in stdout.decode().strip()
+
+        if container_exists:
+            tlog("SearXNG container found. Verifying compatibility...")
+            # Try to start it first
+            await (await asyncio.create_subprocess_exec("docker", "start", "searxng")).wait()
+            
+            # Test if it returns 403
+            if not await try_ping():
+                tlog("SearXNG exists but is unreachable or misconfigured. Re-creating...")
+                await (await asyncio.create_subprocess_exec("docker", "rm", "-f", "searxng")).wait()
+                container_exists = False
+
+        if not container_exists:
+            tlog("Creating fresh SearXNG instance with volume-mounted settings.yml...")
+            # Use absolute path for mounting
+            config_dir = os.path.join(os.path.dirname(__file__), "searxng")
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "run", "-d", "--name", "searxng",
+                "-p", "8888:8080",
+                "-v", f"{config_dir}:/etc/searxng",
+                "searxng/searxng"
+            )
+            await proc.wait()
         
         if proc.returncode == 0:
-            print("SearXNG container start command sent. Waiting for initialization (5s)...")
+            tlog("SearXNG command successful. Waiting for initialization (5s)...")
             await asyncio.sleep(5)
             if await try_ping():
-                print("SearXNG is now ONLINE.")
+                tlog("SearXNG is now ONLINE.")
     except Exception as e:
-        print(f"Docker auto-start error: {e}")
+        tlog(f"SearXNG auto-start failure: {e}")
 
 def _load_system_prompt() -> str:
     prompt_path = os.path.join(os.path.dirname(__file__), "config", "system_prompt.txt")
@@ -215,7 +247,7 @@ SYSTEM_PROMPT = _load_system_prompt()
 # JIT Philosophy: Keep this minimal to avoid context swamping.
 CORE_TOOLS = {
     "discover_tools", 
-    "aether_search", 
+    "web_search", 
     "report_error"
 }
 
@@ -244,7 +276,7 @@ class AgentSession:
             'model': MODEL,
             'model_server': 'http://localhost:11434/v1',
             'api_key': 'EMPTY',
-            'generate_cfg': SAMPLE_OPTIONS
+            'generate_cfg': filter_llm_params(SAMPLE_OPTIONS)
         }
         self.agent = None
         self.call_id_map = {} # (tool_name) -> last_call_id
@@ -290,6 +322,7 @@ class AgentSession:
         await self.send_json({"type": "status_update", "status": status, "model": "Aether Core"})
 
     async def run(self):
+        tlog(f"New session started for WebSocket {id(self.websocket)}")
         try:
             async for message in self.websocket:
                 data = json.loads(message)
@@ -308,7 +341,7 @@ class AgentSession:
                                 await self.send_json({"type": "agent_message", "content": spark_res["response"]})
                                 self.messages.append({'role': 'assistant', 'content': spark_res["response"]})
                                 await self.send_json({"type": "agent_message_done"})
-                                return
+                                continue # Continue listener loop instead of returning
 
                             tool = spark_res["tool"]
                             args = spark_res["args"]
@@ -322,10 +355,10 @@ class AgentSession:
                             self.messages.append({
                                 'role': 'assistant', 
                                 'content': '', 
-                                'function_call': {'name': tool, 'arguments': json.dumps(args)}
+                                'tool_calls': [{'name': tool, 'arguments': json.dumps(args)}]
                             })
                             self.messages.append({
-                                'role': 'function',
+                                'role': 'tool',
                                 'content': json.dumps(res, ensure_ascii=False),
                                 'name': tool
                             })
@@ -333,7 +366,7 @@ class AgentSession:
                             # Final follow-up text? Spark usually just finishes or hands off.
                             # For simplicity, we just wrap it up here.
                             await self.send_json({"type": "agent_message_done"})
-                            return
+                            continue # Continue listener loop instead of returning
                     except Exception as e:
                         tlog(f"Spark Error (non-fatal): {e}")
 
@@ -433,11 +466,15 @@ class AgentSession:
                         result = await upload_to_pastebin(file_path, api_key)
                         await self.send_json({"type": "pastebin_result", "result": result, "path": file_path})
         except websockets.exceptions.ConnectionClosed:
-            pass
+            tlog("WebSocket connection closed normally.")
+        except Exception as e:
+            tlog(f"CRITICAL: Session listener crashed: {e}")
+            import traceback
+            traceback.print_exc()
 
-    async def process_loop(self, depth=0, silent=False):
-        if depth > 3:
-            tlog("Max recursion depth reached for JIT restarts.")
+    async def process_loop(self, depth=0, silent=False, initial_main="", initial_thought=""):
+        if depth > 5:
+            tlog("Depth limit reached. Stopping recursion.")
             return
 
         if not silent:
@@ -466,8 +503,8 @@ class AgentSession:
             self.messages[0]['content'] = SYSTEM_PROMPT + window_block
             await self._reinit_agent()
             
-            # CRITICAL FIX: Reset the reinitialized flag AFTER setup. 
-            # Otherwise, the loop breaks on the very first token.
+            # Tracker for whether this SPECIFIC loop triggered a re-init
+            triggered_reinit = False 
             self.reinitialized = False 
             
             if not self.agent:
@@ -478,10 +515,19 @@ class AgentSession:
             # Pass ONLY user/assistant messages to run, as system prompt is in __init__
             current_history = self.messages[1:]
             
-            # SEQUENCE GUARD: Ensure we start with a user message
-            if current_history and current_history[0].get('role') != 'user':
-                tlog("Sequence Guard: Removing leading non-user message from history.")
-                current_history = [m for m in current_history if m.get('role') != 'assistant']
+            # SLIDING WINDOW: Keep only the last 12 messages to prevent context bloat
+            if len(current_history) > 12:
+                tlog(f"Context Trimming: History length {len(current_history)} exceeded limit. Trimming to latest 12.")
+                current_history = current_history[-12:]
+                # Ensure we still start with a user message for Qwen compatibility
+                if current_history[0].get('role') != 'user':
+                    current_history = current_history[1:]
+
+            # SEQUENCE GUARD: Ensure we start with a user message if we have history
+            if len(current_history) > 0 and current_history[0].get('role') != 'user':
+                tlog("Sequence Guard: Finding first user message...")
+                while current_history and current_history[0].get('role') != 'user':
+                    current_history.pop(0)
             
             tlog(f"History length for run(): {len(current_history)}")
             
@@ -489,11 +535,13 @@ class AgentSession:
             tlog("Requesting model generation (Ollama)...")
             response_generator = self.agent.run(messages=current_history)
             
-            last_history = []
-            last_main_content = ""
-            last_thought_content = ""
+            last_main_content = initial_main
+            last_thought_content = initial_thought
             initial_count = len(current_history)
-            seen_interactions = set() # Track hash of (role, name, content) to prevent duplicates
+            seen_interactions = set() 
+            last_heartbeat = time.time()
+            # Initialize with current state so we always have a valid history to finalize
+            last_history = list(current_history) 
             
             # 3. Stream Results
             while True:
@@ -503,89 +551,100 @@ class AgentSession:
                 
                 # Use safe_next to prevent StopIteration RuntimeError in threads
                 history = await asyncio.to_thread(safe_next, response_generator)
+                
+                # HEARTBEAT: Send a status update every 2 seconds to keep connection alive
+                now = time.time()
+                if now - last_heartbeat > 2.0:
+                    await self.update_status("thinking") 
+                    last_heartbeat = now
+
                 if history is None:
                     tlog("Generation complete.")
                     break
-                    
+                
+                # Update last known state immediately
                 last_history = history
-                if not history: continue
-                
-                latest = history[-1]
-                
-                # Update text deltas for assistant responses
-                if latest['role'] == 'assistant':
-                    content = latest.get('content', '') or ""
-                    # Extract thought vs main text
-                    thought_match = re.search(r'<think>(.*?)(?:</think>|$)', content, re.DOTALL)
-                    if thought_match:
-                        full_thought = thought_match.group(1).strip()
-                        if full_thought.startswith(last_thought_content):
-                            thought_delta = full_thought[len(last_thought_content):]
-                            if thought_delta:
-                                await self.send_json({"type": "agent_thought_chunk", "content": thought_delta})
-                                last_thought_content = full_thought
-                        main_content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
-                    else:
-                        main_content = content.strip()
-
-                    # Main Text Delta
-                    if main_content.startswith(last_main_content):
-                        msg_delta = main_content[len(last_main_content):]
-                        if msg_delta:
-                            await self.send_json({"type": "agent_message", "content": msg_delta})
-                            last_main_content = main_content
-                    elif main_content and not last_main_content:
-                        await self.send_json({"type": "agent_message", "content": main_content})
-                    last_main_content = main_content
+                    
+                # ANTI-SPIN: If history hasn't grown beyond our initial input, 
+                # we are likely waiting for the first token. Sleep briefly to avoid CPU spin.
+                if len(history) <= initial_count or history == current_history:
+                    await asyncio.sleep(0.01)
+                    continue
                 
                 # JIT BREAK: If the agent was re-initialized (new tools), 
                 # we stop the current generator loop so we can finalize history and restart.
                 if self.reinitialized:
                     tlog("Agent re-initialized mid-thought. Finalizing step before restart.")
+                    triggered_reinit = True
                     break
                 
-                # 4. Handle Tool Interactions
+                # 4. Handle Interleaved Content (Text & Tools)
                 if len(history) > initial_count:
                     # m_idx is the global history index
                     for i, m in enumerate(history[initial_count:]):
                         m_idx = initial_count + i
-                        if m_idx in seen_interactions:
-                            continue
                         
-                        # Handle Tool Calls
-                        if 'function_call' in m:
-                            call = m['function_call']
-                            if call.get('name'):
-                                tname = call.get('name')
-                                # Generate a semi-unique ID based on name and count or index
-                                call_id = f"call_{tname}_{m_idx}"
-                                self.call_id_map[tname] = call_id
-                                
-                                tlog(f"Detected Tool Call: {tname} (ID: {call_id})")
-                                await self.update_status("executing")
-                                await self.send_json({
-                                    "type": "tool_call",
-                                    "name": tname,
-                                    "args": call.get('arguments'),
-                                    "call_id": call_id
-                                })
-                                seen_interactions.add(m_idx)
+                        role = m.get('role')
                         
-                        # Handle Tool Outputs (Results)
-                        if m.get('role') == 'function':
+                        # A. Handle Assistant Text & Thoughts
+                        if role == 'assistant':
+                            content = m.get('content', '') or ""
+                            # Extract thought vs main text
+                            thought_match = re.search(r'<think>(.*?)(?:</think>|$)', content, re.DOTALL)
+                            
+                            # Thought Delta
+                            if thought_match:
+                                full_thought = thought_match.group(1).strip()
+                                if full_thought.startswith(last_thought_content):
+                                    thought_delta = full_thought[len(last_thought_content):]
+                                    if thought_delta:
+                                        await self.send_json({"type": "agent_thought_chunk", "content": thought_delta})
+                                        last_thought_content = full_thought
+                                main_content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+                            else:
+                                main_content = content.strip()
+
+                            # Main Text Delta
+                            if main_content.startswith(last_main_content) and len(main_content) > len(last_main_content):
+                                msg_delta = main_content[len(last_main_content):]
+                                if msg_delta:
+                                    await self.send_json({"type": "agent_message", "content": msg_delta})
+                                    last_main_content = main_content
+                            elif main_content and not last_main_content:
+                                # Backup for when startswith fails but we have content
+                                await self.send_json({"type": "agent_message", "content": main_content})
+                                last_main_content = main_content
+
+                            # B. Handle Tool Calls within the assistant message
+                            if 'function_call' in m and m_idx not in seen_interactions:
+                                call = m['function_call']
+                                if call.get('name'):
+                                    tname = call.get('name')
+                                    call_id = f"call_{tname}_{m_idx}"
+                                    self.call_id_map[tname] = call_id
+                                    
+                                    tlog(f"Detected Tool Call: {tname} (ID: {call_id})")
+                                    await self.update_status("executing")
+                                    await self.send_json({
+                                        "type": "tool_call",
+                                        "name": tname,
+                                        "args": call.get('arguments'),
+                                        "call_id": call_id
+                                    })
+                                    seen_interactions.add(m_idx)
+                        
+                        # C. Handle Tool Outputs (Results)
+                        elif role in ['function', 'tool'] and m_idx not in seen_interactions:
                             tname = m.get('name', 'unknown')
                             call_id = self.call_id_map.get(tname)
                             res_content = m.get('content', '{}')
                             
-                            # --- JIT Hallucination Self-Correction ---
-                            # If qwen-agent returns a string instead of JSON, it's likely a tool error
+                            # JIT Hallucination Self-Correction
                             if "does not exists" in res_content and tname != 'unknown':
-                                tlog(f"[JIT] Detected hallucinated tool: {tname}. Checking registry...")
                                 if registry.resolve_name(tname) in registry.tools:
-                                    tlog(f"[JIT] Valid tool found. Auto-loading '{tname}' and restarting...")
+                                    tlog(f"[JIT] Detected hallucinated tool: {tname}. Auto-loading...")
                                     self.loaded_tools.add(tname)
                                     await self._reinit_agent()
-                                    # Auto-resume logic will catch self.reinitialized and restart
                                     seen_interactions.add(m_idx)
                                     continue
 
@@ -598,14 +657,12 @@ class AgentSession:
                                     "output": res,
                                     "call_id": call_id
                                 })
-                                # JIT Discovery Logic: Re-init to update prompt
+                                # JIT Discovery Logic
                                 if isinstance(res, dict) and 'loaded_tools' in res:
                                     new_tools = [t for t in res['loaded_tools'] if t not in self.loaded_tools]
                                     if new_tools:
-                                        tlog(f"Loading new tools: {new_tools}")
                                         self.loaded_tools.update(new_tools)
                                         await self._reinit_agent()
-                                        global_logger.log_message("system", f"[JIT] Discovered new tools: {new_tools}")
                             except Exception as e:
                                 tlog(f"Error parsing tool output: {e}")
                             seen_interactions.add(m_idx)
@@ -613,25 +670,42 @@ class AgentSession:
                     await self.update_status("thinking")
 
             # 5. Finalize Session History
-            # IMPORTANT: We only append/merge the NEW parts of history to keep self.messages valid
-            if last_history:
-                # Find where the response starts (the part after what we sent in)
-                if len(last_history) > initial_count:
-                    new_msgs = last_history[initial_count:]
-                else:
-                    # If it doesn't contain inputs, take everything as new
-                    new_msgs = [m for m in last_history if m.get('role') != 'system']
+            # We ONLY finalize if we didn't just trigger a re-init (which will recurse)
+            if not triggered_reinit and last_history:
+                # DEBUG: Log the roles in the returned history
+                roles = [m.get('role') for m in last_history]
+                tlog(f"Generator history roles: {roles}")
                 
+                # Find new messages (beyond initial_count)
+                new_msgs = last_history[initial_count:] if len(last_history) > initial_count else []
+                
+                # If new_msgs is empty but tokens were processed, qwen_agent might have internal state issues
+                # with history slicing. As a fallback, try to find the last assistant message.
+                if not new_msgs and len(last_history) > 0:
+                   for m in reversed(last_history):
+                       if m.get('role') == 'assistant' and m.get('content'):
+                           tlog("Fallback: Found assistant message in last_history that was missed by slicing.")
+                           new_msgs = [m]
+                           break
+
                 tlog(f"Finalizing history. Appending {len(new_msgs)} new messages.")
                 for m in new_msgs:
-                    self.messages.append(m)
-                    global_logger.log_message(m.get('role'), m)
+                    role = m.get('role')
+                    content = m.get('content', '')
+                    tlog(f"New message role={role} len={len(content)}")
+                    
+                    # Sync check: don't double-append what's already there (merged assistant response)
+                    if role == 'assistant' and self.messages and self.messages[-1].get('role') == 'assistant':
+                        self.messages[-1] = m
+                    else:
+                        self.messages.append(m)
+                    global_logger.log_message(role, m)
 
             # --- AUTO-RESUME TRIGGER ---
-            if self.reinitialized and not self.interrupted:
-                tlog(f"Self-Correcting: Auto-resuming with new tools (Depth: {depth+1})...")
-                await self.process_loop(depth=depth+1, silent=True)
-                return
+            if triggered_reinit and not self.interrupted:
+                tlog(f"Self-Correcting: Auto-resuming after tool discovery (Depth: {depth+1})...")
+                await self.process_loop(depth=depth+1, silent=True, initial_main=last_main_content, initial_thought=last_thought_content)
+                if depth > 0: return
 
             if not silent:
                 await self.send_json({"type": "agent_message_done"})
@@ -650,7 +724,8 @@ class AgentSession:
 
 async def main():
     set_main_loop(asyncio.get_running_loop())
-    await check_searxng()
+    # Run SearXNG check in background so it doesn't block server startup
+    asyncio.create_task(check_searxng())
     async with websockets.serve(lambda ws: AgentSession(ws).run(), "localhost", PORT):
         await asyncio.Future()
 

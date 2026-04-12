@@ -25,22 +25,54 @@ def get_searxng_url():
     return "http://localhost:8888"
 
 @registry.register(
-    "aether_search",
+    "web_search",
     "Search the internet for external facts, news, or weather. DO NOT use this for local system information (installed packages, software versions) if local tools like 'get_software_version' are available.",
     {"type":"object", "properties":{"query":{"type":"string"}}, "required":["query"]}
 )
-async def aether_search(query: str):
+async def web_search(query: str):
     base_url = get_searxng_url()
     try:
-        r = requests.get(f"{base_url}/search", params={"q": query, "format": "json"}, timeout=10)
-        results = r.json().get("results", [])[:3]
+        # Wrap requests.get in a thread to keep the event loop responsive
+        r = await asyncio.to_thread(
+            requests.get, 
+            f"{base_url}/search", 
+            params={"q": query, "format": "json"}, 
+            timeout=10
+        )
+        
+        if r.status_code != 200:
+            return {
+                "status": "error", 
+                "message": f"SearXNG returned status {r.status_code}. Is the service configured correctly?"
+            }
+            
+        data = r.json()
+        results = data.get("results", [])[:4] 
+        
+        if not results:
+            return {"status": "success", "content": "No results found for your query. Try rephrasing."}
         
         combined = []
         for res in results:
             url = res.get("url")
-            combined.append(f"--- {res.get('title')} ({url}) ---\n{res.get('content')}")
+            # Cleaning content and truncating to prevent context bloat
+            content = res.get('content', '')
+            if content:
+                # Remove all HTML tags
+                content = re.sub(r'<[^>]+>', '', content)
+                if len(content) > 300:
+                    content = content[:297] + "..."
+            
+            combined.append(f"### {res.get('title')}\nSource: {url}\n{content}")
+            
         return {"status": "success", "content": "\n\n".join(combined)}
-    except Exception as e: return {"status": "error", "message": str(e)}
+    except requests.exceptions.ConnectionError:
+        return {
+            "status": "error", 
+            "message": f"Could not connect to SearXNG at {base_url}. Please ensure the Docker container is running (docker start searxng)."
+        }
+    except Exception as e: 
+        return {"status": "error", "message": f"Search failed: {str(e)}"}
 
 @registry.register("fetch_url", "Fetch text from a URL.", {"type":"object", "properties":{"url":{"type":"string"}}, "required":["url"]})
 def fetch_url(url: str):

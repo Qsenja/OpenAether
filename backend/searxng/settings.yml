@@ -1,0 +1,10 @@
+use_default_settings: true
+server:
+  port: 8080
+  bind_address: "0.0.0.0"
+  secret_key: "openaether_secret_key"
+  limiter: false
+search:
+  formats:
+    - html
+    - json
