@@ -1,55 +1,17 @@
-
-*$py.class
-.agents/
-backend/config/user_settings.json
-backend/logs/
-.cache/
-.coverage
-dist
-dist/
-dist-ssr
-.DS_Store
-# Editor directories and files
-.env
-env/
-frontend/dist/
-frontend/node_modules/
-frontend/src-tauri/gen/
-frontend/src-tauri/target/
-.idea
-.idea/
-# IDEs
-lerna-debug.log*
-*.local
-*.log
-logs
-# Logs
-*.njsproj
-# Node / Electron
-node_modules
+# Project-specific build artifacts
 node_modules/
-.npm/
-npm-debug.log*
-*.ntvs*
-out/
-pnpm-debug.log*
-# Project Specific
-__pycache__/
-*.py[cod]
-.pytest_cache/
-# Python
-*.sln
-*.suo
-*.sw?
-# Tauri
-# Temporary / OS
-Thumbs.db
-*.tmp
-/tmp/
-.venv
+frontend/dist/
+backend/target/
+/backend/gen/
+
+# Python environment and cache
 venv/
-.vscode/
-.vscode/*
-!.vscode/extensions.json
-yarn-debug.log*
-yarn-error.log*
+.venv/
+**/__pycache__/
+*.py[cod]
+
+# OpenAether specific
+.agents/
+logic/logs/
+logic/config/user_settings.json
+backend/scratch_test.rs

@@ -25,7 +25,7 @@ async fn send_message(
 
     // NORMAL AGENT LOOP
     let base_path = std::env::current_dir().unwrap_or_default();
-    let system_prompt_path = base_path.join("../../backend/config/system_prompt.txt");
+    let system_prompt_path = base_path.join("../logic/config/system_prompt.txt");
     let system_prompt = std::fs::read_to_string(&system_prompt_path).unwrap_or_else(|_| {
         state.logger.log("SYSTEM", "Warning: Could not read system_prompt.txt, using default.");
         "You are Aether Core.".into()
@@ -133,13 +133,13 @@ pub fn run() {
 
     // Use absolute, canonicalized paths to avoid Python RuntimeWarnings (sys.prefix mismatch)
     let base_path = std::env::current_dir().unwrap_or_default();
-    let python_path = base_path.join("../../backend/venv/bin/python")
+    let python_path = base_path.join("../logic/venv/bin/python")
         .canonicalize()
-        .unwrap_or_else(|_| base_path.join("../../backend/venv/bin/python"));
+        .unwrap_or_else(|_| base_path.join("../logic/venv/bin/python"));
         
-    let worker_script = base_path.join("../../backend/skill_worker.py")
+    let worker_script = base_path.join("../logic/skill_worker.py")
         .canonicalize()
-        .unwrap_or_else(|_| base_path.join("../../backend/skill_worker.py"));
+        .unwrap_or_else(|_| base_path.join("../logic/skill_worker.py"));
 
     let state = AppState::new(python_path, worker_script);
     let _ = state.bridge.start(); // Pre-start bridge

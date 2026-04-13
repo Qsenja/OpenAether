@@ -1,0 +1,12 @@
+{
+  "name": "openaether",
+  "version": "0.2.1",
+  "private": true,
+  "scripts": {
+    "dev": "cd backend && ../frontend/node_modules/.bin/tauri dev",
+    "build": "cd backend && ../frontend/node_modules/.bin/tauri build",
+    "tauri": "cd backend && ../frontend/node_modules/.bin/tauri",
+    "ui": "npm --prefix frontend run dev",
+    "logic": "cd logic && source venv/bin/activate && python skill_worker.py"
+  }
+}

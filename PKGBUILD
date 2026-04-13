@@ -1,6 +1,6 @@
 pkgname=openaether
 pkgver=0.2.1
-pkgrel=1
+pkgrel=2
 pkgdesc="Local AI desktop agent for Arch Linux and Hyprland"
 arch=('x86_64')
 url="https://github.com/Qsenja/OpenAether"
@@ -9,7 +9,6 @@ depends=(
     'python'
     'nodejs'
     'npm'
-    'electron'
     'bubblewrap'
     'docker'
     'python-websockets'
@@ -24,8 +23,9 @@ depends=(
     'tesseract'
     'python-json5'
     'ollama'
+    'webkit2gtk' 
 )
-makedepends=('python-pip')
+makedepends=('python-pip' 'rust' 'cargo' 'pkg-config' 'openssl')
 install=openaether.install
 source=(
     "$pkgname-$pkgver.tar.gz::https://github.com/Qsenja/OpenAether/archive/v$pkgver.tar.gz"
@@ -38,15 +38,18 @@ prepare() {
     npm install
 }
 
+build() {
+    cd "$srcdir/OpenAether-$pkgver/backend"
+    # Build tauri app (this will trigger frontend build via tauri.conf.json)
+    cargo build --release
+}
+
 package() {
     cd "$srcdir/OpenAether-$pkgver"
 
     # Install app to /opt
     install -dm755 "$pkgdir/opt/openaether"
     cp -r . "$pkgdir/opt/openaether/"
-
-    # The venv creation is handled in openaether.install post_install
-    # to ensure absolute paths match the target system.
 
     # Entry point script
     install -dm755 "$pkgdir/usr/bin"
@@ -67,8 +70,8 @@ if ! docker ps --format '{{.Names}}' | grep -q "^searxng$"; then
     docker restart searxng 2>/dev/null || true
 fi
 
-cd /opt/openaether/frontend
-exec electron . "$@"
+cd /opt/openaether/backend
+exec ./target/release/openaether "$@"
 EOF
     chmod +x "$pkgdir/usr/bin/openaether"
 
@@ -99,6 +102,5 @@ WantedBy=multi-user.target
 EOF
 
     # Ensure user-writable directories are not created in /opt
-    # Runtime dirs are handled by the app itself via platformdirs
     chmod -R 755 "$pkgdir/opt/openaether"
 }

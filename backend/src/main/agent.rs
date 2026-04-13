@@ -1,21 +1,23 @@
-use rig::prelude::*;
-use rig::streaming::StreamingChat;
-use rig::client::Nothing;
-use rig::tool::{ToolDyn, ToolError};
-use rig::completion::ToolDefinition;
-use rig::wasm_compat::WasmBoxedFuture;
-use futures_util::StreamExt;
-use std::sync::Arc;
-use serde_json::json;
-use anyhow::{Result, anyhow};
 use crate::logic::bridge::PythonBridge;
-use crate::logic::logger::{Logger, LogLevel};
+use crate::logic::logger::{LogLevel, Logger};
 use crate::logic::memory::{MemoryManager, TextRecord};
+use anyhow::{anyhow, Result};
+use futures_util::StreamExt;
+use rig::{
+    client::Nothing,
+    completion::{Message as RigMessage, ToolDefinition},
+    prelude::*,
+    streaming::StreamingChat,
+    tool::{ToolDyn, ToolError},
+};
+use rig::wasm_compat::WasmBoxedFuture;
+use serde_json::json;
+use std::sync::Arc;
 
-use arrow_array::{ArrayRef, FixedSizeListArray, RecordBatch, StringArray, types::Float32Type, RecordBatchIterator};
+use arrow_array::{
+    types::Float32Type, ArrayRef, FixedSizeListArray, RecordBatch, RecordBatchIterator, StringArray,
+};
 use arrow_schema::{DataType, Field, Fields, Schema};
-use rig::providers::ollama::StreamingCompletionResponse;
-use rig::agent::MultiTurnStreamItem;
 
 pub struct Agent {
     ollama_client: rig::providers::ollama::Client,
@@ -53,7 +55,7 @@ impl ToolDyn for PythonTool {
         Box::pin(async move {
             let json_args: serde_json::Value = serde_json::from_str(&args)
                 .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
-                
+
             match bridge.execute(&name, json_args) {
                 Ok(res) => Ok(res.to_string()),
                 Err(e) => Err(ToolError::ToolCallError(e.to_string().into())),
@@ -76,7 +78,7 @@ impl Agent {
             .api_key(Nothing)
             .build()
             .expect("Failed to create Ollama client");
-        
+
         Self {
             ollama_client,
             bridge,
@@ -92,8 +94,9 @@ impl Agent {
         messages: &mut Vec<crate::logic::ollama::Message>,
         model: &str,
         mut event_callback: F,
-    ) -> Result<()> 
-    where F: FnMut(serde_json::Value) + Send + 'static
+    ) -> Result<()>
+    where
+        F: FnMut(serde_json::Value) + Send + 'static,
     {
         self.logger.log("AGENT", "Initializing Rig Agent");
 
@@ -101,10 +104,18 @@ impl Agent {
         let mut rig_tools: Vec<Box<dyn ToolDyn>> = Vec::new();
         for tool in &self.available_tools {
             if let Some(func) = tool.get("function") {
-                let name = func.get("name").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-                let description = func.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let name = func
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let description = func
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 let parameters = func.get("parameters").cloned().unwrap_or(json!({}));
-                
+
                 rig_tools.push(Box::new(PythonTool {
                     name,
                     description,
@@ -117,53 +128,72 @@ impl Agent {
         // 2. Window Context Injection
         let mut window_context = String::new();
         if let Ok(res) = self.bridge.execute("get_windows", json!({})) {
-            window_context = format!("\n\n[ACTUAL OPEN WINDOWS]: {}", serde_json::to_string(&res).unwrap_or_default());
+            window_context = format!(
+                "\n\n[ACTUAL OPEN WINDOWS]: {}",
+                serde_json::to_string(&res).unwrap_or_default()
+            );
         }
 
         // 3. Setup Memory Context
-        let index = match self.memory_manager.get_index().await {
+        let _index = match self.memory_manager.get_index().await {
             Ok(idx) => Some(idx),
             Err(e) => {
-                self.logger.log("AGENT", &format!("Warning: Could not initialize memory index: {}", e));
+                self.logger.log(
+                    "AGENT",
+                    &format!("Warning: Could not initialize memory index: {}", e),
+                );
                 None
             }
         };
 
         // 4. Build the Rig Agent
-        let mut builder = self.ollama_client.agent(model)
+        let rig_agent = self
+            .ollama_client
+            .agent(model)
             .preamble(&(self.system_prompt.clone() + &window_context))
-            .tools(rig_tools);
-
-        if let Some(idx) = index {
-            builder = builder.dynamic_context(2, idx);
-        }
-        
-        let rig_agent = builder.build();
+            .default_max_turns(10)
+            .tools(rig_tools)
+            .build();
 
         // 5. Run the Agent with history support
-        let user_query = messages.last().map(|m| m.content.clone()).unwrap_or_default();
-        
-        self.logger.log_at(LogLevel::Debug, "AGENT", &format!("Executing Rig chat for: {}", user_query));
+        let user_query = messages
+            .last()
+            .map(|m| m.content.clone())
+            .unwrap_or_default();
+
+        // Convert history to Rig messages (excluding the last message which is the current query)
+        let history = messages
+            .iter()
+            .take(messages.len().saturating_sub(1))
+            .map(|m| {
+                if m.role == "user" {
+                    RigMessage::user(&m.content)
+                } else {
+                    RigMessage::assistant(&m.content)
+                }
+            })
+            .collect::<Vec<_>>();
 
         // Use streaming for real-time UI updates
-        let mut stream: std::pin::Pin<Box<dyn futures_util::Stream<Item = Result<MultiTurnStreamItem<StreamingCompletionResponse>, rig::agent::StreamingError>> + Send>> = rig_agent.stream_chat(&user_query, Vec::<rig::completion::Message>::new()).await;
-
+        let mut stream = rig_agent.stream_chat(&user_query, history).await;
         let mut assistant_content = String::new();
 
         while let Some(chunk_res) = stream.next().await {
             match chunk_res {
-                Ok(item) => {
-                    match item {
-                        rig::agent::MultiTurnStreamItem::StreamAssistantItem(
-                            rig::streaming::StreamedAssistantContent::Text(text)
-                        ) => {
-                            let text_val = text.text;
-                            self.logger.log_at(LogLevel::Trace, "AGENT", &format!("Content: {}", text_val));
-                            assistant_content.push_str(&text_val);
-                            event_callback(json!({"type": "agent_message", "content": text_val}));
-                        }
-                        _ => {}
+                Ok(item) => match item {
+                    rig::agent::MultiTurnStreamItem::StreamAssistantItem(
+                        rig::streaming::StreamedAssistantContent::Text(text),
+                    ) => {
+                        let text_val = text.text;
+                        self.logger.log_at(
+                            LogLevel::Trace,
+                            "AGENT",
+                            &format!("Content: {}", text_val),
+                        );
+                        assistant_content.push_str(&text_val);
+                        event_callback(json!({"type": "agent_message", "content": text_val}));
                     }
+                    _ => {}
                 },
                 Err(e) => return Err(anyhow!("Stream error: {}", e)),
             }
@@ -179,15 +209,21 @@ impl Agent {
         if self.memory_manager.table.get().is_some() {
             let memory_id = format!("mem_{}", chrono::Utc::now().timestamp_millis());
             let memory_text = format!("User: {}\nAssistant: {}", user_query, assistant_content);
-            
+
             let record = TextRecord {
                 id: memory_id,
                 text: memory_text,
             };
 
-            let embedding_model = self.memory_manager.embedding_model.get()
+            let embedding_model = self
+                .memory_manager
+                .embedding_model
+                .get()
                 .ok_or_else(|| anyhow!("Embedding model not initialized"))?;
-            let table = self.memory_manager.table.get()
+            let table = self
+                .memory_manager
+                .table
+                .get()
                 .ok_or_else(|| anyhow!("LanceDB table not initialized"))?;
 
             let batch = rig::embeddings::EmbeddingsBuilder::new(embedding_model.clone())
@@ -213,10 +249,19 @@ impl Agent {
             let ids = StringArray::from_iter_values(batch.iter().map(|(r, _)| &r.id));
             let texts = StringArray::from_iter_values(batch.iter().map(|(r, _)| &r.text));
             let vectors = FixedSizeListArray::from_iter_primitive::<Float32Type, _, _>(
-                batch.into_iter().map(|(_, embs)| {
-                    Some(embs.first().vec.into_iter().map(|v| Some(v as f32)).collect::<Vec<_>>())
-                }).collect::<Vec<_>>(),
-                768
+                batch
+                    .into_iter()
+                    .map(|(_, embs)| {
+                        Some(
+                            embs.first()
+                                .vec
+                                .into_iter()
+                                .map(|v| Some(v as f32))
+                                .collect::<Vec<_>>(),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+                768,
             );
 
             let record_batch = RecordBatch::try_new(
@@ -225,21 +270,25 @@ impl Agent {
                     Arc::new(ids) as ArrayRef,
                     Arc::new(texts) as ArrayRef,
                     Arc::new(vectors) as ArrayRef,
-                ]
-            ).map_err(|e| anyhow!("Failed to create RecordBatch: {}", e))?;
+                ],
+            )
+            .map_err(|e| anyhow!("Failed to create RecordBatch: {}", e))?;
 
             let schema = record_batch.schema();
             let batches = RecordBatchIterator::new(vec![Ok(record_batch)], schema);
 
             if let Err(e) = table.add(batches).execute().await {
-                self.logger.log("AGENT", &format!("Warning: Failed to save to memory: {}", e));
+                self.logger.log(
+                    "AGENT",
+                    &format!("Warning: Failed to save to memory: {}", e),
+                );
             } else {
-                self.logger.log("AGENT", "Conversation saved to LanceDB memory.");
+                self.logger
+                    .log("AGENT", "Conversation saved to LanceDB memory.");
             }
         }
 
         event_callback(json!({"type": "agent_message_done"}));
         Ok(())
     }
-
 }

@@ -2,7 +2,7 @@ post_install() {
     echo ">>> Creating Python virtual environment in /opt/openaether/venv..."
     python -m venv --system-site-packages /opt/openaether/venv
     /opt/openaether/venv/bin/pip install --upgrade pip
-    /opt/openaether/venv/bin/pip install -r /opt/openaether/backend/requirements.txt
+    /opt/openaether/venv/bin/pip install -r /opt/openaether/logic/requirements.txt
 
     echo ">>> Pulling SearXNG Docker image..."
     docker pull searxng/searxng

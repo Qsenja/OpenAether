@@ -33,7 +33,7 @@ export interface ToolOutput {
 export function useBackend() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [status, setStatus] = useState<'idle' | 'thinking' | 'executing' | 'error'>('idle');
-  const [isConnected, setIsConnected] = useState(true); // Tauri backend is always "connected" once ready
+  const [isConnected] = useState(true); // Tauri backend is always "connected" once ready
   const [isInitializing, setIsInitializing] = useState(true);
   const isMounted = useRef(true);
 
