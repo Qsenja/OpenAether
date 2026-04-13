@@ -1,5 +1,4 @@
 import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lib'))
 
 import asyncio
 import json
@@ -11,12 +10,13 @@ import contextlib
 from datetime import datetime
 import ollama
 from registry import registry, BaseTool
-from logger import global_logger
 from shell_manager import global_shell
 
 # --- CONFIGURATION ---
 MEMORY_PATH = os.path.expanduser("~/.config/openaether/memory.json")
 TRANSLATE_MODEL = "translategemma:4b"
+# Default fallback if specialized model fails
+FALLBACK_MODEL = "qwen2.5:14b"
 
 # --- MEMORY LOGIC ---
 def _load_memory() -> dict:
@@ -173,16 +173,14 @@ async def translate(text: str, target_lang: str, source_lang: str = "auto"):
         response = ollama.chat(model=TRANSLATE_MODEL, messages=[{"role": "user", "content": prompt}])
         return {"status": "success", "translation": response["message"]["content"].strip()}
     except Exception as e:
-        global_logger.log_message("system", f"[translate] Primary model {TRANSLATE_MODEL} failed: {e}. Trying fallback...")
+        registry.log_message("warn", f"[translate] Primary model {TRANSLATE_MODEL} failed: {e}. Trying fallback...")
         try:
-            # Fallback to the main model (we assume qwen2.5:14b or whatever is configured in main)
-            # We import MODEL from main here to stay consistent
-            from main import MODEL as PRIMARY_MODEL
-            response = ollama.chat(model=PRIMARY_MODEL, messages=[{"role": "user", "content": prompt}])
+            # Fallback to the main model (we assume qwen2.5:14b or what is default)
+            response = ollama.chat(model=FALLBACK_MODEL, messages=[{"role": "user", "content": prompt}])
             return {
                 "status": "success", 
                 "translation": response["message"]["content"].strip(),
-                "note": f"Translated using fallback model {PRIMARY_MODEL}"
+                "note": f"Translated using fallback model {FALLBACK_MODEL}"
             }
         except Exception as e2:
             return {"status": "error", "message": f"Translation failed on all models: {str(e2)}"}
@@ -230,13 +228,13 @@ class CalculateDiscount(BaseTool):
 
 @registry.register("report_error", "Report a task failure.", {"type": "object", "properties": {"issue": {"type": "string"}}, "required": ["issue"]})
 def report_error(issue: str, details: str = ""):
-    global_logger.log_error_report("agent", issue, details)
+    registry.log_event("error_report", {"issue": issue, "details": details, "tag": "AGENT"})
     return {"status": "success"}
 
 @registry.register
 class DiscoverTools(BaseTool):
     name = "discover_tools"
-    description = "Search the INTERNAL SKILL DATABASE for a specific function signature. Use this ONLY to load new tools into memory."
+    description = "Search the INTERNAL SKILL DATABASE and documentation for specific functions. Use this if you are unsure about your available capabilities or need to see tool parameters."
     parameters = {
         "type": "object",
         "properties": {"query": {"type": "string", "description": "Keyword to search for"}},

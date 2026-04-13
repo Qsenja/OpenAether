@@ -9,7 +9,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 try:
     from registry import registry, set_main_loop
-    from logger import tlog
 except ImportError as e:
     print(json.dumps({"type": "error", "message": f"Initialization failed: {e}"}))
     sys.exit(1)

@@ -11,7 +11,6 @@ import psutil
 import random
 from datetime import datetime
 from registry import registry
-from logger import global_logger
 from shell_manager import global_shell
 
 # --- APPS & BINARIES ---

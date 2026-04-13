@@ -5,9 +5,7 @@ import yaml
 import json
 import importlib
 import glob
-import asyncio
 import json5
-from logger import global_logger
 
 # Global loop holder for cross-thread sync-to-async bridging
 _MAIN_LOOP = None
@@ -50,7 +48,7 @@ class ToolRegistry:
                 return yaml.safe_load(f) or {}
         except Exception as e:
             # Fallback for critical aliases if loading fails
-            global_logger.log_message("system", f"[registry] Failed to load aliases.yaml: {e}")
+            self.log_message("error", f"[registry] Failed to load aliases.yaml: {e}")
             return {
                 "google_search": "web_search",
                 "search": "web_search",
@@ -178,9 +176,9 @@ class ToolRegistry:
                 try:
                     # Import as skills.filename
                     importlib.import_module(f"skills.{module_name}")
-                    global_logger.log_message("system", f"[registry] Loaded skill module: {module_name}")
+                    self.log_message("info", f"[registry] Loaded skill module: {module_name}")
                 except Exception as e:
-                    global_logger.log_message("system", f"[registry] Failed to load skill {module_name}: {e}")
+                    self.log_message("error", f"[registry] Failed to load skill {module_name}: {e}")
 
     def get_tool_schema(self, name: str) -> dict:
         """Get the JSON schema for a specific tool."""
@@ -373,5 +371,21 @@ class ToolRegistry:
             except Exception as e:
                 return {"status": "error", "message": f"Error executing tool {resolved}: {str(e)}"}
         return {"status": "error", "message": f"Tool '{name}' not found. To look for new capabilities, use 'discover_tools(query)'. Available tools: {', '.join(list(self.tools.keys())[:5])}..."}
+
+    def log_event(self, event_type: str, data: dict):
+        """Send a structured event log to the Rust backend."""
+        print(json.dumps({
+            "type": "log",
+            "event_type": event_type,
+            "data": data
+        }), flush=True)
+
+    def log_message(self, level: str, message: str, tag: str = "SKILL"):
+        """Send a simple message log to the Rust backend."""
+        self.log_event("message", {
+            "level": level,
+            "message": message,
+            "tag": tag
+        })
 
 registry = ToolRegistry()

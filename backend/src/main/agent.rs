@@ -1,6 +1,7 @@
 use crate::logic::bridge::PythonBridge;
 use crate::logic::logger::{LogLevel, Logger};
 use crate::logic::memory::{MemoryManager, TextRecord};
+use crate::logic::shell::ShellManager;
 use anyhow::{anyhow, Result};
 use futures_util::StreamExt;
 use rig::{
@@ -13,6 +14,7 @@ use rig::{
 use rig::wasm_compat::WasmBoxedFuture;
 use serde_json::json;
 use std::sync::Arc;
+use std::time::Duration;
 
 use arrow_array::{
     types::Float32Type, ArrayRef, FixedSizeListArray, RecordBatch, RecordBatchIterator, StringArray,
@@ -23,9 +25,11 @@ pub struct Agent {
     ollama_client: rig::providers::ollama::Client,
     bridge: Arc<PythonBridge>,
     memory_manager: Arc<MemoryManager>,
+    shell: Arc<ShellManager>,
     logger: Arc<Logger>,
     system_prompt: String,
     available_tools: Vec<serde_json::Value>,
+    temperature: f64,
 }
 
 struct PythonTool {
@@ -33,6 +37,7 @@ struct PythonTool {
     description: String,
     parameters: serde_json::Value,
     bridge: Arc<PythonBridge>,
+    logger: Arc<Logger>,
 }
 
 impl ToolDyn for PythonTool {
@@ -55,11 +60,73 @@ impl ToolDyn for PythonTool {
         Box::pin(async move {
             let json_args: serde_json::Value = serde_json::from_str(&args)
                 .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
+            let json_args_clone = json_args.clone();
 
-            match bridge.execute(&name, json_args) {
+            let res = match bridge.execute(&name, json_args) {
                 Ok(res) => Ok(res.to_string()),
                 Err(e) => Err(ToolError::ToolCallError(e.to_string().into())),
+            };
+
+            if let Ok(ref output) = res {
+                self.logger.log_tool(&name, json_args_clone, output);
             }
+
+            res
+        })
+    }
+}
+
+// Native Rust tool for the shell
+struct RunCommandTool {
+    shell: Arc<ShellManager>,
+    logger: Arc<Logger>,
+}
+
+#[derive(serde::Deserialize)]
+struct RunCommandArgs {
+    /// The shell command to execute
+    command: String,
+}
+
+impl ToolDyn for RunCommandTool {
+    fn name(&self) -> String {
+        "run_command".to_string()
+    }
+
+    fn definition<'a>(&'a self, _prompt: String) -> WasmBoxedFuture<'a, ToolDefinition> {
+        let def = ToolDefinition {
+            name: "run_command".to_string(),
+            description: "Run a generic shell command. This session is persistent and maintains directory/environment between calls.".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "The command to run"
+                    }
+                },
+                "required": ["command"]
+            }),
+        };
+        Box::pin(async move { def })
+    }
+
+    fn call<'a>(&'a self, args: String) -> WasmBoxedFuture<'a, Result<String, ToolError>> {
+        let shell = self.shell.clone();
+        Box::pin(async move {
+            let json_args: RunCommandArgs = serde_json::from_str(&args)
+                .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
+
+            let res = match shell.execute(&json_args.command, Duration::from_secs(60)).await {
+                Ok(res) => Ok(res.to_string()),
+                Err(e) => Err(ToolError::ToolCallError(e.to_string().into())),
+            };
+
+            if let Ok(ref output) = res {
+                self.logger.log_tool("run_command", json!({"command": json_args.command}), output);
+            }
+
+            res
         })
     }
 }
@@ -69,9 +136,11 @@ impl Agent {
         _ollama: Arc<crate::logic::ollama::OllamaClient>,
         bridge: Arc<PythonBridge>,
         memory_manager: Arc<MemoryManager>,
+        shell: Arc<ShellManager>,
         logger: Arc<Logger>,
         system_prompt: String,
         available_tools: Vec<serde_json::Value>,
+        temperature: f64,
     ) -> Self {
         let ollama_client = rig::providers::ollama::Client::builder()
             .base_url("http://localhost:11434")
@@ -83,9 +152,11 @@ impl Agent {
             ollama_client,
             bridge,
             memory_manager,
+            shell,
             logger,
             system_prompt,
             available_tools,
+            temperature,
         }
     }
 
@@ -121,13 +192,20 @@ impl Agent {
                     description,
                     parameters,
                     bridge: self.bridge.clone(),
+                    logger: self.logger.clone(),
                 }));
             }
         }
 
+        // Add native tools
+        rig_tools.push(Box::new(RunCommandTool {
+            shell: self.shell.clone(),
+            logger: self.logger.clone(),
+        }));
+
         // 2. Window Context Injection
         let mut window_context = String::new();
-        if let Ok(res) = self.bridge.execute("get_windows", json!({})) {
+        if let Ok(res) = self.shell.execute("hyprctl clients -j", Duration::from_secs(2)).await {
             window_context = format!(
                 "\n\n[ACTUAL OPEN WINDOWS]: {}",
                 serde_json::to_string(&res).unwrap_or_default()
@@ -151,6 +229,11 @@ impl Agent {
             .ollama_client
             .agent(model)
             .preamble(&(self.system_prompt.clone() + &window_context))
+            .additional_params(json!({
+                "options": {
+                    "temperature": self.temperature
+                }
+            }))
             .default_max_turns(10)
             .tools(rig_tools)
             .build();

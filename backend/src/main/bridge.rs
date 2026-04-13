@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use anyhow::{Result, anyhow};
 use std::path::PathBuf;
+use crate::logic::logger::Logger;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BridgeRequest {
@@ -30,14 +31,16 @@ pub struct PythonBridge {
     child: Arc<Mutex<Option<Child>>>,
     python_path: PathBuf,
     worker_script: PathBuf,
+    logger: Arc<Logger>,
 }
 
 impl PythonBridge {
-    pub fn new(python_path: PathBuf, worker_script: PathBuf) -> Self {
+    pub fn new(python_path: PathBuf, worker_script: PathBuf, logger: Arc<Logger>) -> Self {
         Self {
             child: Arc::new(Mutex::new(None)),
             python_path,
             worker_script,
+            logger,
         }
     }
 
@@ -127,9 +130,19 @@ impl PythonBridge {
         while reader.read_line(&mut line)? > 0 {
             let trimmed = line.trim();
             if trimmed.starts_with('{') && trimmed.ends_with('}') {
-                if let Ok(response) = serde_json::from_str::<BridgeResponse>(trimmed) {
-                    if response.id.as_deref() == Some(&request.id) || response.id.is_none() {
-                        return Ok(response);
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                    if val.get("type").and_then(|t| t.as_str()) == Some("log") {
+                        // LOG PACKET: Send to logger
+                        if let (Some(event_type), Some(data)) = (
+                            val.get("event_type").and_then(|t| t.as_str()),
+                            val.get("data").cloned()
+                        ) {
+                            self.logger.log_event(event_type, data);
+                        }
+                    } else if let Ok(response) = serde_json::from_value::<BridgeResponse>(val) {
+                        if response.id.as_deref() == Some(&request.id) || response.id.is_none() {
+                            return Ok(response);
+                        }
                     }
                 }
             }

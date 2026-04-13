@@ -7,22 +7,23 @@ import asyncio
 import shutil
 from bs4 import BeautifulSoup
 from registry import registry
-from logger import global_logger
 from shell_manager import global_shell
 import webbrowser
-from logger import tlog
 
 # --- WEB SEARCH & BROWSING ---
 def get_searxng_url():
     """Read searxng_url from config or fallback to localhost."""
+    url = "http://localhost:8888"
     try:
         config_path = os.path.expanduser("~/.config/openaether/config.json")
         if os.path.exists(config_path):
             with open(config_path, 'r') as f:
-                return json.load(f).get("searxng_url", "http://localhost:8888")
+                url = json.load(f).get("searxng_url", "http://localhost:8888")
     except:
         pass
-    return "http://localhost:8888"
+    
+    registry.log_message("trace", f"Using SearXNG URL: {url}", tag="WEB")
+    return url
 
 @registry.register(
     "web_search",
@@ -32,18 +33,22 @@ def get_searxng_url():
 async def web_search(query: str):
     base_url = get_searxng_url()
     try:
+        registry.log_message("info", f"Searching SearXNG for: {query}", tag="WEB")
         # Wrap requests.get in a thread to keep the event loop responsive
         r = await asyncio.to_thread(
             requests.get, 
             f"{base_url}/search", 
             params={"q": query, "format": "json"}, 
+            headers={"User-Agent": "OpenAether/1.0"},
             timeout=10
         )
         
         if r.status_code != 200:
+            msg = f"SearXNG returned status {r.status_code}. Is the service configured correctly?"
+            registry.log_message("error", msg, tag="WEB")
             return {
                 "status": "error", 
-                "message": f"SearXNG returned status {r.status_code}. Is the service configured correctly?"
+                "message": msg
             }
             
         data = r.json()
@@ -67,12 +72,16 @@ async def web_search(query: str):
             
         return {"status": "success", "content": "\n\n".join(combined)}
     except requests.exceptions.ConnectionError:
+        msg = f"Could not connect to SearXNG at {base_url}. Please ensure the Docker container is running (docker start searxng)."
+        registry.log_message("error", msg, tag="WEB")
         return {
             "status": "error", 
-            "message": f"Could not connect to SearXNG at {base_url}. Please ensure the Docker container is running (docker start searxng)."
+            "message": msg
         }
     except Exception as e: 
-        return {"status": "error", "message": f"Search failed: {str(e)}"}
+        msg = f"Search failed: {str(e)}"
+        registry.log_message("error", msg, tag="WEB")
+        return {"status": "error", "message": msg}
 
 @registry.register("fetch_url", "Fetch text from a URL.", {"type":"object", "properties":{"url":{"type":"string"}}, "required":["url"]})
 def fetch_url(url: str):
@@ -140,7 +149,7 @@ async def open_website(url: str):
         # open() is non-blocking on most platforms as it spawns a process
         # We wrap in a thread just to be safe if the OS handler is slow.
         await asyncio.to_thread(webbrowser.open, url)
-        tlog(f"Opening website Action: {url}")
+        registry.log_message("info", f"Opening website: {url}")
         return {"status": "success", "message": f"Opening {url} in system browser."}
     except Exception as e:
         return {"status": "error", "message": str(e)}

@@ -40,19 +40,21 @@ async fn send_message(
         }
     };
 
+    let (model, temperature) = {
+        let s = state.settings.lock().unwrap();
+        (s.ollama_model.clone(), s.temperature)
+    };
+
     let agent = Agent::new(
         state.ollama.clone(),
         state.bridge.clone(),
         state.memory.clone(),
+        state.shell.clone(),
         state.logger.clone(),
         system_prompt,
         schemas,
+        temperature,
     );
-
-    let model = {
-        let s = state.settings.lock().unwrap();
-        s.ollama_model.clone()
-    };
 
     let app_clone = app.clone();
     let res: anyhow::Result<()> = agent.process(&mut messages, &model, move |event| {
@@ -144,10 +146,24 @@ pub fn run() {
     let state = AppState::new(python_path, worker_script);
     let _ = state.bridge.start(); // Pre-start bridge
 
+    let logic_path = base_path.join("../logic");
+    let logger_clone = state.logger.clone();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .manage(state)
+        .setup(move |_app| {
+            // Auto-start SearXNG in the background
+            tokio::spawn(async move {
+                if let Err(e) = DockerManager::check_searxng(&logic_path).await {
+                    logger_clone.log("SYSTEM", &format!("Failed to auto-start SearXNG: {}", e));
+                } else {
+                    logger_clone.log("SYSTEM", "SearXNG is running and reachable.");
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             send_message,
             get_settings,
