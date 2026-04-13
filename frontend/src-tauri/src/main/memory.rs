@@ -35,7 +35,7 @@ impl MemoryManager {
         
         Self {
             ollama_client: rig::providers::ollama::Client::builder()
-                .base_url("http://localhost:11434/v1")
+                .base_url("http://localhost:11434")
                 .api_key(Nothing)
                 .build()
                 .expect("Failed to create Ollama client"),

@@ -5,7 +5,6 @@ use rig::tool::{ToolDyn, ToolError};
 use rig::completion::ToolDefinition;
 use rig::wasm_compat::WasmBoxedFuture;
 use futures_util::StreamExt;
-use futures_util::TryStreamExt;
 use std::sync::Arc;
 use serde_json::json;
 use anyhow::{Result, anyhow};
@@ -13,9 +12,10 @@ use crate::logic::bridge::PythonBridge;
 use crate::logic::logger::{Logger, LogLevel};
 use crate::logic::memory::{MemoryManager, TextRecord};
 
-use arrow_array::{ArrayRef, FixedSizeListArray, RecordBatch, StringArray, types::Float32Type};
+use arrow_array::{ArrayRef, FixedSizeListArray, RecordBatch, StringArray, types::Float32Type, RecordBatchIterator};
 use arrow_schema::{DataType, Field, Fields, Schema};
 use rig::providers::ollama::StreamingCompletionResponse;
+use rig::agent::MultiTurnStreamItem;
 
 pub struct Agent {
     ollama_client: rig::providers::ollama::Client,
@@ -122,7 +122,7 @@ impl Agent {
 
         // 3. Setup Memory Context
         let index = match self.memory_manager.get_index().await {
-            Ok(idx) => Some(Arc::new(idx)),
+            Ok(idx) => Some(idx),
             Err(e) => {
                 self.logger.log("AGENT", &format!("Warning: Could not initialize memory index: {}", e));
                 None
@@ -134,8 +134,8 @@ impl Agent {
             .preamble(&(self.system_prompt.clone() + &window_context))
             .tools(rig_tools);
 
-        if let Some(idx) = index.as_ref() {
-            builder = builder.dynamic_context(2, Arc::clone(idx));
+        if let Some(idx) = index {
+            builder = builder.dynamic_context(2, idx);
         }
         
         let rig_agent = builder.build();
@@ -146,11 +146,7 @@ impl Agent {
         self.logger.log_at(LogLevel::Debug, "AGENT", &format!("Executing Rig chat for: {}", user_query));
 
         // Use streaming for real-time UI updates
-        let mut stream = rig_agent.stream_chat(&user_query, Vec::new()).await
-            .map_err(|e| anyhow!("Rig error: {}", e))?;
-
-        // Helper to satisfy type inference for streaming response type
-        let mut stream = stream.map_ok(|item: rig::agent::MultiTurnStreamItem<StreamingCompletionResponse>| item);
+        let mut stream: std::pin::Pin<Box<dyn futures_util::Stream<Item = Result<MultiTurnStreamItem<StreamingCompletionResponse>, rig::agent::StreamingError>> + Send>> = rig_agent.stream_chat(&user_query, Vec::<rig::completion::Message>::new()).await;
 
         let mut assistant_content = String::new();
 
@@ -180,7 +176,7 @@ impl Agent {
         });
 
         // 6. Save to memory if available
-        if let Some(idx) = index {
+        if self.memory_manager.table.get().is_some() {
             let memory_id = format!("mem_{}", chrono::Utc::now().timestamp_millis());
             let memory_text = format!("User: {}\nAssistant: {}", user_query, assistant_content);
             
@@ -232,10 +228,8 @@ impl Agent {
                 ]
             ).map_err(|e| anyhow!("Failed to create RecordBatch: {}", e))?;
 
-            let batches = lancedb::arrow::SimpleRecordBatchReader {
-                schema,
-                batches: vec![Ok(record_batch)].into_iter(),
-            };
+            let schema = record_batch.schema();
+            let batches = RecordBatchIterator::new(vec![Ok(record_batch)], schema);
 
             if let Err(e) = table.add(batches).execute().await {
                 self.logger.log("AGENT", &format!("Warning: Failed to save to memory: {}", e));
