@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 
 interface InputBarProps {
   onSendMessage: (content: string) => void;
@@ -25,60 +25,51 @@ export const InputBar: React.FC<InputBarProps> = ({ onSendMessage, onStop, statu
     }
   };
 
-  // Auto-resize textarea
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = '24px'; // Base height
-      if (text) {
-        textareaRef.current.style.height = 'auto';
-        textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
-      }
-    }
-  }, [text]);
-
   const isBusy = status === 'thinking' || status === 'executing';
-
-  return (
-    <div style={{
-      padding: '0 24px 12px',
-      margin: '0 auto',
-      width: '100%',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      gap: '4px',
-      animation: 'fadeIn 0.6s ease-out'
-    }}>
-      <div className="glass slim-input-fix" style={{
-        borderRadius: 'var(--radius-pill)',
-        width: '100%',
-        transition: 'all 0.3s ease',
-        backdropFilter: 'blur(30px)',
-        gap: '12px'
-      }}>
-        <textarea
-          ref={textareaRef}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={isConnected ? "Message Fabel..." : "Connecting..."}
-          disabled={!isConnected}
-          style={{
-            flex: 1,
-            background: 'transparent',
-            border: 'none',
-            outline: 'none',
-            color: 'var(--text-main)',
-            fontFamily: 'var(--font-main)',
-            fontSize: '1rem',
-            resize: 'none',
-            maxHeight: '150px',
-            padding: '0',
-            lineHeight: '24px',
-            height: '24px',
-            fontWeight: 400
-          }}
-        />
+ 
+   return (
+     <div style={{
+       padding: '0 24px 12px',
+       margin: '0 auto',
+       width: '100%',
+       display: 'flex',
+       flexDirection: 'column',
+       alignItems: 'center',
+       gap: '4px',
+       animation: 'fadeIn 0.6s ease-out'
+     }}>
+       <div className="glass slim-input-fix" style={{
+         borderRadius: 'var(--radius-pill)',
+         width: '100%',
+         transition: 'all 0.3s ease',
+         backdropFilter: 'blur(30px)',
+         gap: '12px'
+       }}>
+         <textarea
+           ref={textareaRef}
+           value={text}
+           onChange={(e) => setText(e.target.value)}
+           onKeyDown={handleKeyDown}
+           placeholder={isConnected ? "Message Fabel..." : "Connecting..."}
+           disabled={!isConnected}
+           style={{
+             flex: 1,
+             background: 'transparent',
+             border: 'none',
+             outline: 'none',
+             color: 'var(--text-main)',
+             fontFamily: 'var(--font-main)',
+             fontSize: '1rem',
+             resize: 'none',
+             maxHeight: '96px',
+             padding: '0 8px 0 27px',
+             lineHeight: '24px',
+             fontWeight: 400,
+             overflowY: 'auto',
+             // @ts-ignore - modern CSS property
+             fieldSizing: 'content'
+           }}
+         />
         
         <button
           onClick={isBusy ? onStop : handleSend}

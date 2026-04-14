@@ -141,8 +141,8 @@ body {
 /* Force Minimalist Fixes */
 .slim-input-fix {
   max-width: 600px !important;
-  height: 42px !important;
-  padding: 0 16px !important;
+  min-height: 48px !important;
+  padding: 12px 16px !important;
   display: flex !important;
   align-items: center !important;
   background: rgba(26, 26, 28, 0.98) !important;
