@@ -1,14 +1,14 @@
 pkgname=openaether
-pkgver=0.2.1
-pkgrel=2
+pkgver=0.2.2
+pkgrel=1
 pkgdesc="Local AI desktop agent for Arch Linux and Hyprland"
 arch=('x86_64')
 url="https://github.com/Qsenja/OpenAether"
 license=('Apache-2.0')
 depends=(
-    'python'
-    'nodejs'
-    'npm'
+    'python>=3.10'
+    'nodejs>=22'
+    'npm>=10'
     'bubblewrap'
     'docker'
     'python-websockets'
@@ -25,7 +25,7 @@ depends=(
     'ollama'
     'webkit2gtk' 
 )
-makedepends=('python-pip' 'rust' 'cargo' 'pkg-config' 'openssl')
+makedepends=('python-pip' 'rust>=1.80' 'cargo' 'pkg-config' 'openssl')
 install=openaether.install
 source=(
     "$pkgname-$pkgver.tar.gz::https://github.com/Qsenja/OpenAether/archive/v$pkgver.tar.gz"
@@ -39,48 +39,47 @@ prepare() {
 }
 
 build() {
+    # 1. Build Frontend
+    cd "$srcdir/OpenAether-$pkgver/frontend"
+    npm run build
+
+    # 2. Build Backend (Rust)
     cd "$srcdir/OpenAether-$pkgver/backend"
-    # Build tauri app (this will trigger frontend build via tauri.conf.json)
     cargo build --release
 }
 
 package() {
     cd "$srcdir/OpenAether-$pkgver"
 
-    # Install app to /opt
+    # Install to /opt/openaether
     install -dm755 "$pkgdir/opt/openaether"
-    cp -r . "$pkgdir/opt/openaether/"
+    
+    # We only need the binary, logic files and assets for runtime
+    install -Dm755 "backend/target/release/openaether" "$pkgdir/opt/openaether/openaether"
+    cp -r "logic" "$pkgdir/opt/openaether/"
+    cp "openaether.svg" "$pkgdir/opt/openaether/"
 
-    # Entry point script
+    # Entry point wrapper
     install -dm755 "$pkgdir/usr/bin"
     cat > "$pkgdir/usr/bin/openaether" << 'EOF'
 #!/bin/bash
-# Start SearXNG if not already running
+# Start SearXNG if not already running (Automated via .install but checked here for safety)
 if ! docker ps --format '{{.Names}}' | grep -q "^searxng$"; then
-    echo "[OpenAether] Starting SearXNG..."
-    docker run -d \
-        --name searxng \
-        --restart always \
-        -p 8888:8080 \
-        searxng/searxng 2>/dev/null || true
-    # Enable JSON format
-    sleep 2
-    docker exec searxng sed -i 's/formats:/formats:\n  - json/' \
-        /etc/searxng/settings.yml 2>/dev/null || true
-    docker restart searxng 2>/dev/null || true
+    echo "[OpenAether] SearXNG not detected. Please ensure docker is running."
 fi
 
-cd /opt/openaether/backend
-exec ./target/release/openaether "$@"
+cd /opt/openaether
+# Run the application
+exec ./openaether "$@"
 EOF
     chmod +x "$pkgdir/usr/bin/openaether"
 
-    # .desktop
+    # .desktop file
     install -Dm644 "$srcdir/openaether.desktop" \
         "$pkgdir/usr/share/applications/openaether.desktop"
 
-    # Icon
-    install -Dm644 "$srcdir/OpenAether-$pkgver/openaether.svg" \
+    # Icon file
+    install -Dm644 "openaether.svg" \
         "$pkgdir/usr/share/icons/hicolor/scalable/apps/openaether.svg"
 
     # systemd service for SearXNG
@@ -101,6 +100,6 @@ ExecStop=/usr/bin/docker stop searxng
 WantedBy=multi-user.target
 EOF
 
-    # Ensure user-writable directories are not created in /opt
+    # Ensure correct permissions
     chmod -R 755 "$pkgdir/opt/openaether"
 }

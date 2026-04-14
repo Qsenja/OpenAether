@@ -1,53 +1,69 @@
 post_install() {
+    # 1. Setup Python Virtual Environment
     echo ">>> Creating Python virtual environment in /opt/openaether/venv..."
     python -m venv --system-site-packages /opt/openaether/venv
     /opt/openaether/venv/bin/pip install --upgrade pip
-    /opt/openaether/venv/bin/pip install -r /opt/openaether/logic/requirements.txt
+    
+    echo ">>> Installing Python dependencies from requirements.txt..."
+    if [ -f /opt/openaether/logic/requirements.txt ]; then
+        /opt/openaether/venv/bin/pip install -r /opt/openaether/logic/requirements.txt
+    fi
 
+    # 2. Setup SearXNG Docker
     echo ">>> Pulling SearXNG Docker image..."
     docker pull searxng/searxng
 
-    # Only create if not already present
     if ! docker ps -a --format '{{.Names}}' | grep -q "^searxng$"; then
-        echo ">>> Setting up SearXNG container..."
+        echo ">>> Initializing SearXNG container..."
         docker run -d \
             --name searxng \
             --restart always \
             -p 8888:8080 \
             searxng/searxng
+        
+        # Brief pause to let container initialize
         sleep 3
-        # Enable JSON API
+        
+        # Automatically enable JSON API format
+        echo ">>> Configuring SearXNG JSON API..."
         docker exec searxng sh -c \
             "sed -i '/^  formats:/a\    - json' /etc/searxng/settings.yml"
         docker restart searxng
     else
-        echo ">>> SearXNG container already exists, skipping creation."
+        echo ">>> SearXNG container already exists, skipping initialization."
     fi
 
+    # 3. System Integration
     echo ">>> Enabling SearXNG systemd service..."
     systemctl enable openaether-searxng.service
 
-    # Create user log dir
-    mkdir -p "$HOME/.local/state/openaether/logs"
+    
+    systemctl enable --now ollama
+    systemctl enable --now docker
+    usermod -aG docker $USER
 
-    echo ""
-    echo ">>> OpenAether installed successfully!"
-    echo ">>> IMPORTANT: Ensure Ollama and Docker services are enabled and running:"
-    echo ">>>   systemctl enable --now ollama"
-    echo ">>>   systemctl enable --now docker"
-    echo ">>>"
-    echo ">>> Launch with: openaether"
 }
 
 post_upgrade() {
-    # On upgrade, just restart the container
+    echo ">>> Refreshing OpenAether environment..."
+    
+    # Update venv dependencies
+    if [ -f /opt/openaether/logic/requirements.txt ]; then
+        /opt/openaether/venv/bin/pip install -r /opt/openaether/logic/requirements.txt
+    fi
+
+    # Refresh container
     docker restart searxng 2>/dev/null || true
-    echo ">>> OpenAether upgraded successfully!"
+    
+    echo ">>> OpenAether upgrade completed."
 }
 
 pre_remove() {
-    echo ">>> Stopping SearXNG..."
-    systemctl disable openaether-searxng.service
-    docker stop searxng
-    docker rm searxng
+    echo ">>> Cleaning up OpenAether environment..."
+    systemctl disable openaether-searxng.service 2>/dev/null || true
+    
+    # Optional: Stop and remove the SearXNG container
+    echo ">>> Stopping SearXNG container..."
+    docker stop searxng 2>/dev/null || true
+    docker rm searxng 2>/dev/null || true
 }
