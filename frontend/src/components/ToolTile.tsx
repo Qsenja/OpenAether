@@ -15,6 +15,7 @@ export const ToolTile: React.FC<ToolTileProps> = ({ toolCall, toolOutput }) => {
       className="sleek-card" 
       style={{
         margin: '12px 0',
+        marginLeft: '-4px', // Nudge left to align with text edge
         overflow: 'hidden',
         background: isDone ? 'rgba(16, 185, 129, 0.04)' : 'rgba(251, 146, 60, 0.04)',
         borderLeft: `3px solid ${isDone ? 'var(--success)' : 'var(--primary)'}`

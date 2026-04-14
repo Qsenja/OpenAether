@@ -86,7 +86,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
           {/* Temperature */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <label style={{ fontSize: '0.9rem', color: 'var(--text-dim)', fontWeight: 600 }}>Temperature</label>
+              <label style={{ fontSize: '0.9rem', color: 'var(--text-dim)', fontWeight: 600 }}>Temperature (Randomness)</label>
               <span style={{ fontSize: '0.9rem', color: 'var(--primary)', fontWeight: 700 }}>{localSettings.temperature}</span>
             </div>
             <input 
@@ -98,24 +98,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
               onChange={e => updateField('temperature', parseFloat(e.target.value))}
               style={{ accentColor: 'var(--primary)', cursor: 'pointer' }}
             />
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
-              Lower is more focused/logical, higher is more creative.
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', margin: 0 }}>
+              0.1 (Precise Facts) — 2.0 (Creative/Abstract). Standard is 0.7.
             </p>
             {localSettings.temperature > 0.8 && (
-              <p style={{ fontSize: '0.75rem', color: '#f97316', fontWeight: 600 }}>
-                ⚠️ High values may cause hallucinations or strange languages.
-              </p>
-            )}
-            {localSettings.temperature < 0.1 && (
-              <p style={{ fontSize: '0.75rem', color: '#ef4444', fontWeight: 600 }}>
-                ⚠️ Very low values may cause repetitive loops.
+              <p style={{ fontSize: '0.75rem', color: '#f97316', fontWeight: 600, margin: 0 }}>
+                ⚠️ Warning: High values can lead to hallucinations or language switching.
               </p>
             )}
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <label style={{ fontSize: '0.9rem', color: 'var(--text-dim)', fontWeight: 600 }}>Top P (Nucleus Sampling)</label>
+              <label style={{ fontSize: '0.9rem', color: 'var(--text-dim)', fontWeight: 600 }}>Top P (Vocabulary Filter)</label>
               <span style={{ fontSize: '0.9rem', color: 'var(--primary)', fontWeight: 700 }}>{localSettings.top_p}</span>
             </div>
             <input 
@@ -127,30 +122,33 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
               onChange={e => updateField('top_p', parseFloat(e.target.value))}
               style={{ accentColor: 'var(--primary)', cursor: 'pointer' }}
             />
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
-              Filters vocabulary to the top percentage of likely words. Helps prevent "boring" or overly generic answers.
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', margin: 0 }}>
+              Limits the words the AI can choose from. Lowering this makes responses more generic but "safer."
             </p>
           </div>
 
           {/* Log Level */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <label style={{ fontSize: '0.9rem', color: 'var(--text-dim)', fontWeight: 600 }}>Log Level</label>
+            <label style={{ fontSize: '0.9rem', color: 'var(--text-dim)', fontWeight: 600 }}>Log Level (System Diagnostics)</label>
             <select 
               value={localSettings.log_level} 
               onChange={e => updateField('log_level', parseInt(e.target.value))}
-              className="sleek-card"
               style={{
                 padding: '12px 16px',
                 color: 'var(--text-main)',
                 outline: 'none',
-                background: 'rgba(255, 255, 255, 0.03)'
+                background: 'rgba(255, 255, 255, 0.05)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                borderRadius: 'var(--radius-md)',
+                appearance: 'none',
+                cursor: 'pointer'
               }}
             >
-              <option value={1}>Error</option>
-              <option value={2}>Warn</option>
-              <option value={3}>Info</option>
-              <option value={4}>Debug</option>
-              <option value={5}>Trace</option>
+              <option value={1} style={{ background: '#1c1c1e' }}>Error</option>
+              <option value={2} style={{ background: '#1c1c1e' }}>Warn</option>
+              <option value={3} style={{ background: '#1c1c1e' }}>Info</option>
+              <option value={4} style={{ background: '#1c1c1e' }}>Debug</option>
+              <option value={5} style={{ background: '#1c1c1e' }}>Trace</option>
             </select>
           </div>
         </div>

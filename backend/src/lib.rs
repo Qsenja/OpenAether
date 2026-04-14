@@ -2,7 +2,7 @@
 #[path = "main/mod.rs"]
 pub mod logic;
 
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, State, Manager};
 use serde_json::json;
 use futures_util::StreamExt;
 
@@ -148,20 +148,52 @@ pub fn run() {
     let state = AppState::new(python_path, worker_script);
     let _ = state.bridge.start(); // Pre-start bridge
 
-    let logic_path = base_path.join("../logic");
-    let logger_clone = state.logger.clone();
-
+    let _logic_path = base_path.join("../logic");
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .manage(state)
-        .setup(move |_app| {
+        .setup(move |app| {
+            let handle = app.handle().clone();
+            
             // Auto-start SearXNG in the background
+            let base_path_clone = base_path.clone();
             tokio::spawn(async move {
-                if let Err(e) = DockerManager::check_searxng(&logic_path).await {
-                    logger_clone.log("SYSTEM", &format!("Failed to auto-start SearXNG: {}", e));
+                let state = handle.state::<AppState>();
+                if let Err(e) = DockerManager::check_searxng(&base_path_clone).await {
+                    state.logger.log("SYSTEM", &format!("Warning: SearXNG check failed: {}", e));
                 } else {
-                    logger_clone.log("SYSTEM", "SearXNG is running and reachable.");
+                    state.logger.log("SYSTEM", "SearXNG is running and reachable.");
+                }
+
+                // Automated Memory Sanitization (Self-Healing)
+                // Purge any malformed tool call leaks from previous sessions
+                if let Err(e) = state.memory.sanitize_memory().await {
+                    state.logger.log("SYSTEM", &format!("Warning: Memory sanitization failed: {}", e));
+                }
+
+                // Internal Tool Manual Synchronization
+                // This ensures the agent always knows its capabilities without prompt bloat
+                let schemas = state.bridge.get_schemas().unwrap_or_default();
+                
+                // Create a temporary agent instance to gather all definitions (Native + Bridge)
+                let temp_agent = Agent::new(
+                    state.ollama.clone(),
+                    state.bridge.clone(),
+                    state.memory.clone(),
+                    state.shell.clone(),
+                    state.logger.clone(),
+                    "sync-persona".to_string(),
+                    schemas,
+                    0.5,
+                    0.9,
+                    "".to_string()
+                );
+
+                let all_defs = temp_agent.get_all_tool_definitions();
+                match state.memory.sync_tool_manual(all_defs).await {
+                    Ok(_) => state.logger.log("MEMORY", "Internal tool manual synchronized successfully."),
+                    Err(e) => state.logger.log("MEMORY", &format!("Warning: Tool manual sync failed: {}", e)),
                 }
             });
             Ok(())

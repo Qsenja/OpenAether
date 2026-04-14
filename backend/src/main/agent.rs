@@ -1,5 +1,5 @@
 use crate::logic::bridge::PythonBridge;
-use crate::logic::logger::{LogLevel, Logger};
+use crate::logic::logger::Logger;
 use crate::logic::memory::{MemoryManager, TextRecord};
 use crate::logic::shell::ShellManager;
 use anyhow::{anyhow, Result};
@@ -16,6 +16,7 @@ use rig::wasm_compat::WasmBoxedFuture;
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
+use regex::Regex;
 
 use arrow_array::{
     types::Float32Type, ArrayRef, FixedSizeListArray, RecordBatch, RecordBatchIterator, StringArray,
@@ -79,6 +80,74 @@ impl ToolDyn for PythonTool {
     }
 }
 
+// Native tool to discover other tools via RAG
+struct DiscoverTools {
+    memory_manager: Arc<MemoryManager>,
+    logger: Arc<Logger>,
+}
+
+#[derive(serde::Deserialize)]
+struct DiscoverToolsArgs {
+    /// Search query for the internal tool manual (e.g., 'network scanning')
+    query: String,
+}
+
+impl ToolDyn for DiscoverTools {
+    fn name(&self) -> String {
+        "discover_tools".to_string()
+    }
+
+    fn definition<'a>(&'a self, _prompt: String) -> WasmBoxedFuture<'a, ToolDefinition> {
+        let def = ToolDefinition {
+            name: "discover_tools".to_string(),
+            description: "Search your internal knowledge base for tools that can help fulfill the request. Use this if you don't know the name of a specific tool.".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "What capability are you looking for?"
+                    }
+                },
+                "required": ["query"]
+            }),
+        };
+        Box::pin(async move { def })
+    }
+
+    fn call<'a>(&'a self, args: String) -> WasmBoxedFuture<'a, Result<String, ToolError>> {
+        let memory = self.memory_manager.clone();
+        let logger = self.logger.clone();
+        Box::pin(async move {
+            let json_args: DiscoverToolsArgs = serde_json::from_str(&args)
+                .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
+
+            let mut results_text = String::from("Internal Tool Manual Search Results:\n");
+            
+            if let Ok(index) = memory.get_tool_index().await {
+                let request = VectorSearchRequest::builder()
+                    .query(&json_args.query)
+                    .samples(3)
+                    .build()
+                    .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
+
+                if let Ok(results) = index.top_n::<TextRecord>(request).await {
+                    for (_, _, record) in results {
+                        results_text.push_str(&format!("---\n{}\n", record.text));
+                    }
+                }
+            }
+
+            if results_text.is_empty() {
+                results_text = "No tools found matching that description.".to_string();
+            }
+
+            logger.log_tool("discover_tools", json!({"query": json_args.query}), &results_text);
+            Ok(results_text)
+        })
+    }
+}
+
 // Native Rust tool for the shell
 struct RunCommandTool {
     shell: Arc<ShellManager>,
@@ -116,6 +185,7 @@ impl ToolDyn for RunCommandTool {
 
     fn call<'a>(&'a self, args: String) -> WasmBoxedFuture<'a, Result<String, ToolError>> {
         let shell = self.shell.clone();
+        let logger = self.logger.clone();
         Box::pin(async move {
             let json_args: RunCommandArgs = serde_json::from_str(&args)
                 .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
@@ -126,7 +196,7 @@ impl ToolDyn for RunCommandTool {
             };
 
             if let Ok(ref output) = res {
-                self.logger.log_tool("run_command", json!({"command": json_args.command}), output);
+                logger.log_tool("run_command", json!({"command": json_args.command}), output);
             }
 
             res
@@ -165,6 +235,61 @@ impl Agent {
             top_p,
             searxng_url,
         }
+    }
+
+    pub fn get_all_tool_definitions(&self) -> Vec<serde_json::Value> {
+        let mut defs = self.available_tools.clone();
+        
+        // Add native tool schemas manually for indexing
+        defs.push(json!({
+            "name": "run_command",
+            "description": "Run a generic shell command. This session is persistent and maintains directory/environment between calls."
+        }));
+        defs.push(json!({
+            "name": "discover_tools",
+            "description": "Search your internal knowledge base for tools that can help fulfill the request. Use this if you don't know the name of a specific tool."
+        }));
+        defs.push(json!({
+            "name": "web_search",
+            "description": "Search the web for current information, news, or specific facts."
+        }));
+        defs.push(json!({
+            "name": "fetch_url",
+            "description": "Extract the text content from a specific URL. Useful for reading articles or deep-diving into a result."
+        }));
+        defs.push(json!({
+            "name": "scan_network",
+            "description": "Scan the local network for active devices and open ports using nmap."
+        }));
+        defs.push(json!({
+            "name": "get_wifi_info",
+            "description": "List available Wi-Fi networks and connection status."
+        }));
+        
+        defs
+    }
+
+    /// Detects if the assistant's response is likely a "leaked" tool call (raw JSON)
+    /// instead of actual helpful text. Scanning the full content ensures we catch
+    /// leaks even if they follow a paragraph of normal text.
+    fn is_likely_garbage(&self, text: &str) -> bool {
+        // 1. Detect Non-Latin Garbage (Mojibake/Thai/Chinese leaks)
+        let non_latin_count = text.chars()
+            .filter(|c| !c.is_ascii() && !c.is_numeric() && !c.is_whitespace() && !c.is_ascii_punctuation())
+            .count();
+        
+        if non_latin_count > 5 || text.contains("檐僇") {
+             return true;
+        }
+
+        // 2. Detect Leaked Tool Calls (JSON in text)
+        // We use a robust regex to find {"name": ... "args": ...} patterns
+        let re = Regex::new(r#"(?i)\{\s*["']name["']\s*:\s*["'][^"']+["']\s*,\s*["']args"#).unwrap();
+        if re.is_match(text) {
+            return true;
+        }
+
+        false
     }
 
     pub async fn process<F>(
@@ -207,6 +332,10 @@ impl Agent {
         // Add native tools
         rig_tools.push(Box::new(RunCommandTool {
             shell: self.shell.clone(),
+            logger: self.logger.clone(),
+        }));
+        rig_tools.push(Box::new(DiscoverTools {
+            memory_manager: self.memory_manager.clone(),
             logger: self.logger.clone(),
         }));
 
@@ -300,8 +429,10 @@ impl Agent {
             .preamble(&preamble)
             .additional_params(json!({
                 "options": {
-                    "temperature": self.temperature,
-                    "top_p": self.top_p
+                    "temperature": (self.temperature).min(0.7), // Cap temperature for stability
+                    "top_p": self.top_p,
+                    "repeat_penalty": 1.2,
+                    "repeat_last_n": 64
                 }
             }))
             .default_max_turns(10)
@@ -309,9 +440,17 @@ impl Agent {
             .build();
 
         // Convert history to Rig messages (excluding the last message which is the current query)
+        // QUARANTINE: Filter out previous messages that contains mojibake/Thai/Chinese to prevent relapses
         let history = messages
             .iter()
             .take(messages.len().saturating_sub(1))
+            .filter(|m| {
+                if m.role == "assistant" && self.is_likely_garbage(&m.content) {
+                    self.logger.log("AGENT", "Quarantining garbage history message to prevent relapses.");
+                    return false;
+                }
+                true
+            })
             .map(|m| {
                 if m.role == "user" {
                     RigMessage::user(&m.content)
@@ -328,22 +467,57 @@ impl Agent {
         while let Some(chunk_res) = stream.next().await {
             match chunk_res {
                 Ok(item) => match item {
-                    rig::agent::MultiTurnStreamItem::StreamAssistantItem(
-                        rig::streaming::StreamedAssistantContent::Text(text),
-                    ) => {
-                        let text_val = text.text;
-                        self.logger.log_at(
-                            LogLevel::Trace,
-                            "AGENT",
-                            &format!("Content: {}", text_val),
-                        );
-                        assistant_content.push_str(&text_val);
-                        event_callback(json!({"type": "agent_message", "content": text_val}));
-                    }
+                    rig::agent::MultiTurnStreamItem::StreamAssistantItem(content) => match content {
+                        rig::streaming::StreamedAssistantContent::Text(text) => {
+                            let text_val = text.text;
+                            
+                            // SHIELD: If this specific chunk looks like a raw JSON tool call,
+                            // we block it from the UI to keep the chat clean.
+                            if (text_val.contains("\"name\":") || text_val.contains("'name':")) && 
+                               (text_val.contains("\"args") || text_val.contains("'args")) {
+                                self.logger.log("AGENT", "SHIELD: Suppressed JSON leak in text stream.");
+                            } else {
+                                assistant_content.push_str(&text_val);
+                                event_callback(json!({"type": "agent_message", "content": text_val}));
+                            }
+                        }
+                        rig::streaming::StreamedAssistantContent::ToolCall { tool_call, .. } => {
+                            self.logger.log("AGENT", &format!("Calling tool: {} ({})", tool_call.function.name, tool_call.id));
+                            event_callback(json!({
+                                "type": "tool_call",
+                                "name": tool_call.function.name,
+                                "call_id": tool_call.id,
+                                "args": tool_call.function.arguments.to_string()
+                            }));
+                        }
+                        _ => {}
+                    },
+                    rig::agent::MultiTurnStreamItem::StreamUserItem(content) => match content {
+                        rig::streaming::StreamedUserContent::ToolResult { tool_result, .. } => {
+                            self.logger.log("AGENT", &format!("Tool result received for: {}", tool_result.id));
+                            event_callback(json!({
+                                "type": "tool_output",
+                                "name": "tool_result",
+                                "call_id": tool_result.id,
+                                "output": format!("{:?}", tool_result.content)
+                            }));
+                        }
+                    },
                     _ => {}
                 },
-                Err(e) => return Err(anyhow!("Stream error: {}", e)),
+                Err(e) => {
+                    self.logger.log("AGENT", &format!("Stream error: {}", e));
+                    return Err(anyhow!("Stream error: {}", e));
+                }
             }
+        }
+
+        // --- GARBAGE FILTER ---
+        // If the model leaked a tool call as raw text, its content will contain raw JSON.
+        // We detect this and skip saving to memory to prevent "muscle memory" pollution.
+        let is_garbage = self.is_likely_garbage(&assistant_content);
+        if is_garbage {
+            self.logger.log("AGENT", "Memory save BLOCKED: Detected malformed tool call leak (JSON in text stream).");
         }
 
         // Update local history
@@ -352,8 +526,8 @@ impl Agent {
             content: assistant_content.clone(),
         });
 
-        // 6. Save to memory if available
-        if self.memory_manager.table.get().is_some() {
+        // 6. Save to memory if available AND not garbage
+        if !is_garbage && self.memory_manager.table.get().is_some() {
             let memory_id = format!("mem_{}", chrono::Utc::now().timestamp_millis());
             let memory_text = format!("User: {}\nAssistant: {}", user_query, assistant_content);
 
