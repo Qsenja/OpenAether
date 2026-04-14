@@ -2,10 +2,10 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "OpenAether",
   "version": "1.0.0",
-  "identifier": "com.openaether.app",
+  "identifier": "com.openaether.desktop",
   "build": {
     "beforeDevCommand": "npm --prefix frontend run dev",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://127.0.0.1:1420",
     "beforeBuildCommand": "npm --prefix frontend run build",
     "frontendDist": "../frontend/dist"
   },

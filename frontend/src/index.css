@@ -1,24 +1,26 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@300;400;500;600;700;800&family=BJ+Cree:wght@400;500;600;700&family=Bitcount+Grid+Double:wght@100..900&family=Datatype:wght@100..900&family=Doto:wght@100..900&family=Iosevka+Charon:ital,wght@0,300;0,400;0,500;0,700;1,300;1,400;1,500;1,700&family=Oswald:wght@200..700&family=Roboto:ital,wght@0,100..900;1,100..900&family=Saira+Stencil:ital,wght@0,100..900;1,100..900&display=swap');
-
 :root {
-  --bg-dark: #0a0c10;
-  --bg-surface: #141820;
+  --bg-dark: #161618;
+  --bg-surface: #212124;
+  --bg-bubble-user: #2c2c2e;
+  --bg-bubble-ai: rgba(255, 255, 255, 0.02);
   --primary: #f97316;
-  --secondary: #4ade80;
+  --primary-glow: rgba(249, 115, 22, 0.4);
+  --secondary: #ea580c;
   --accent: #fdba74;
-  --text-main: #f1f5f9;
+  --text-main: #f8fafc;
   --text-dim: #94a3b8;
-  --danger: #f43f5e;
+  --danger: #ef4444;
   --success: #10b981;
-  --font-logo: 'Saira Stencil', sans-serif;
+  --font-logo: 'Outfit', sans-serif;
   --font-main: 'Outfit', sans-serif;
-  --font-thinking: 'BJ Cree', sans-serif;
   --font-mono: 'Iosevka Charon', monospace;
-  --radius-md: 12px;
-  --radius-lg: 18px;
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  --glass-bg: rgba(15, 23, 42, 0.6);
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-pill: 100px;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.12);
+  --shadow-md: 0 10px 25px -5px rgba(0,0,0,0.4);
+  --shadow-lg: 0 20px 50px -10px rgba(0,0,0,0.5);
+  --glass-bg: rgba(33, 33, 36, 0.85);
   --glass-border: rgba(255, 255, 255, 0.06);
 }
 
@@ -37,8 +39,9 @@ body {
   width: 100vw;
   -webkit-font-smoothing: antialiased;
   background-image: 
-    radial-gradient(circle at 0% 0%, rgba(47, 160, 132, 0.1) 0%, transparent 50%),
-    radial-gradient(circle at 100% 100%, rgba(34, 211, 238, 0.05) 0%, transparent 50%);
+    radial-gradient(circle at 0% 0%, rgba(249, 115, 22, 0.08) 0%, transparent 45%),
+    radial-gradient(circle at 100% 0%, rgba(249, 115, 22, 0.05) 0%, transparent 40%),
+    radial-gradient(circle at 50% 100%, rgba(24, 25, 27, 0.5) 0%, transparent 50%);
 }
 
 #root {
@@ -57,27 +60,17 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.2);
+  background: rgba(148, 163, 184, 0.1);
   border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(47, 160, 132, 0.5);
-}
-
-.frameless-drag {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 30px;
-  z-index: 9999;
-  -webkit-app-region: drag;
+  background: var(--primary-glow);
 }
 
 .glass {
   background: var(--glass-bg);
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(20px);
   border: 1px solid var(--glass-border);
   box-shadow: var(--shadow-md);
 }
@@ -87,10 +80,86 @@ body {
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .sleek-card:hover {
-  border-color: rgba(47, 160, 132, 0.3);
-  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  border-color: rgba(249, 115, 22, 0.3);
+  box-shadow: var(--shadow-md);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-soft {
+  0% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.02); }
+  100% { opacity: 0.5; transform: scale(1); }
+}
+
+/* Markdown styling */
+.markdown-content p {
+  margin-bottom: 12px;
+}
+
+.markdown-content p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-content a {
+  color: var(--primary) !important;
+  text-decoration: none;
+  font-weight: 600;
+  border-bottom: 1px solid transparent;
+  transition: all 0.2s;
+}
+
+.markdown-content a:hover {
+  color: var(--accent) !important;
+  border-bottom-color: var(--accent);
+}
+
+.markdown-content ul, .markdown-content ol {
+  margin: 12px 0;
+  padding-left: 20px;
+}
+
+.markdown-content li {
+  margin-bottom: 6px;
+}
+
+.markdown-content code {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+
+/* Force Minimalist Fixes */
+.slim-input-fix {
+  max-width: 600px !important;
+  height: 42px !important;
+  padding: 0 16px !important;
+  display: flex !important;
+  align-items: center !important;
+  background: rgba(26, 26, 28, 0.98) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+.ai-ambient-text {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin-top: 4px !important;
+}
+
+.user-bubble-fix {
+  background: #2c2c2e !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 18px 18px 4px 18px !important;
+  padding: 10px 16px !important;
 }

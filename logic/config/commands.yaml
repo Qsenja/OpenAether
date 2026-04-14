@@ -61,7 +61,7 @@ fixed_commands:
       - hey
       - wer bist du
       - wer bist du?
-    response: "I am Aether Core, your research agent for Hyprland. How can I help you today?"
+    response: "I am Fabel, your research agent for Hyprland. How can I help you today?"
 
   - keywords: [mute, stumm, stummschalten, stummschaltung]
     tool: set_volume

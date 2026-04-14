@@ -10,6 +10,7 @@ pub struct UserSettings {
     pub searxng_url: String,
     pub log_level: i32,
     pub temperature: f64,
+    pub top_p: f64,
 }
 
 impl Default for UserSettings {
@@ -19,7 +20,8 @@ impl Default for UserSettings {
             ollama_model: "qwen2.5:14b".to_string(),
             searxng_url: "http://localhost:8888".to_string(),
             log_level: 3,
-            temperature: 0.8,
+            temperature: 0.4,
+            top_p: 0.9,
         }
     }
 }

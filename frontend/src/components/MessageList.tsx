@@ -45,7 +45,7 @@ export const MessageList: React.FC<MessageListProps> = ({ messages, status }) =>
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             </svg>
             <p style={{ marginTop: '20px', fontSize: '1.2rem', fontFamily: 'var(--font-logo)' }}>
-              How can Aether Core help you today?
+              How can Fabel help you today?
             </p>
           </div>
         )}

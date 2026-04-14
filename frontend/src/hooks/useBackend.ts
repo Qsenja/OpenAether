@@ -30,11 +30,21 @@ export interface ToolOutput {
   output: any;
 }
 
+export interface UserSettings {
+  pastebin_api_key: String;
+  ollama_model: String;
+  searxng_url: String;
+  log_level: number;
+  temperature: number;
+  top_p: number;
+}
+
 export function useBackend() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [status, setStatus] = useState<'idle' | 'thinking' | 'executing' | 'error'>('idle');
-  const [isConnected] = useState(true); // Tauri backend is always "connected" once ready
+  const [isConnected] = useState(true);
   const [isInitializing, setIsInitializing] = useState(true);
+  const [settings, setSettings] = useState<UserSettings | null>(null);
   const isMounted = useRef(true);
 
   const logToTerminal = async (msg: string) => {
@@ -56,7 +66,9 @@ export function useBackend() {
     // Initial status check
     const checkStatus = async () => {
       try {
-        await invoke('get_setup_status');
+        await invoke<any>('get_setup_status');
+        const initialSettings = await invoke<UserSettings>('get_settings');
+        setSettings(initialSettings);
         setIsInitializing(false);
       } catch (e) {
         logToTerminal(`Initial status check failed: ${e}`);
@@ -232,9 +244,28 @@ export function useBackend() {
 
   const retry = useCallback(() => {
     setIsInitializing(true);
-    // Restarting is handled by the OS in Tauri or via page refresh
     window.location.reload();
   }, []);
 
-  return { messages, status, isConnected, isInitializing, sendMessage, stopGeneration, retry };
+  const updateSettings = useCallback(async (newSettings: UserSettings) => {
+    try {
+      await invoke('update_settings', { settings: newSettings });
+      setSettings(newSettings);
+      logToTerminal('Settings updated successfully');
+    } catch (e: any) {
+      logToTerminal(`Update Settings Error: ${e}`);
+    }
+  }, []);
+
+  return { 
+    messages, 
+    status, 
+    isConnected, 
+    isInitializing, 
+    settings,
+    sendMessage, 
+    stopGeneration, 
+    retry,
+    updateSettings
+  };
 }

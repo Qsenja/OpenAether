@@ -1204,6 +1204,19 @@ dependencies = [
 
 [[package]]
 name = "cssparser"
+version = "0.31.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b3df4f93e5fbbe73ec01ec8d3f68bba73107993a5b1e7519273c32db9b0d5be"
+dependencies = [
+ "cssparser-macros",
+ "dtoa-short",
+ "itoa",
+ "phf 0.11.3",
+ "smallvec",
+]
+
+[[package]]
+name = "cssparser"
 version = "0.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dae61cf9c0abb83bd659dab65b7e4e38d8236824c85f0f804f173567bda257d2"
@@ -2237,6 +2250,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ego-tree"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "12a0bb14ac04a9fcf170d0bbbef949b44cc492f4452bd20c095636956f653642"
+
+[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2933,6 +2952,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "getopts"
+version = "0.2.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfe4fbac503b8d1f88e6676011885f34b7174f46e59956bba534ba83abded4df"
+dependencies = [
+ "unicode-width",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.1.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3248,6 +3276,29 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
+name = "home"
+version = "0.5.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc627f471c528ff0c4a49e1d5e60450c8f6461dd6d10ba9dcd3a61d3dff7728d"
+dependencies = [
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "html5ever"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c13771afe0e6e846f1e67d038d4cb29998a6779f93c809212e4e9c32efd244d4"
+dependencies = [
+ "log",
+ "mac",
+ "markup5ever 0.12.1",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
 
 [[package]]
 name = "html5ever"
@@ -4736,6 +4787,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c41e0c4fef86961ac6d6f8a82609f55f31b05e4fce149ac5710e439df7619ba4"
 
 [[package]]
+name = "malloc_buf"
+version = "0.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62bb907fe88d54d8d9ce32a3cceab4218ed2f6b7d35617cafe9adf84e43919cb"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "markup5ever"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "16ce3abbeba692c8b8441d036ef91aea6df8da2c6b6e21c7e14d3c18e526be45"
+dependencies = [
+ "log",
+ "phf 0.11.3",
+ "phf_codegen 0.11.3",
+ "string_cache 0.8.9",
+ "string_cache_codegen 0.5.4",
+ "tendril 0.4.3",
+]
+
+[[package]]
 name = "markup5ever"
 version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5015,7 +5089,7 @@ dependencies = [
  "log",
  "ndk-sys",
  "num_enum",
- "raw-window-handle",
+ "raw-window-handle 0.6.2",
  "thiserror 1.0.69",
 ]
 
@@ -5207,6 +5281,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "objc"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "915b1b472bc21c53464d6c8461c9d3af805ba1ef837e1cac254428f4a77177b1"
+dependencies = [
+ "malloc_buf",
 ]
 
 [[package]]
@@ -5407,6 +5490,7 @@ dependencies = [
  "reqwest 0.12.28",
  "rig-core",
  "rig-lancedb",
+ "scraper",
  "serde",
  "serde_json",
  "sysinfo",
@@ -5416,6 +5500,7 @@ dependencies = [
  "tauri-plugin-shell",
  "tokio",
  "vte",
+ "webbrowser",
 ]
 
 [[package]]
@@ -5722,6 +5807,16 @@ checksum = "cbffee61585b0411840d3ece935cce9cb6321f01c45477d30066498cd5e1a815"
 dependencies = [
  "phf_generator 0.8.0",
  "phf_shared 0.8.0",
+]
+
+[[package]]
+name = "phf_codegen"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fb1c3a8bc4dd4e5cfce29b44ffc14bedd2ee294559a294e2a4d4c9e9a6a13cd"
+dependencies = [
+ "phf_generator 0.10.0",
+ "phf_shared 0.10.0",
 ]
 
 [[package]]
@@ -6435,6 +6530,12 @@ checksum = "973443cf09a9c8656b574a866ab68dfa19f0867d0340648c7d2f6a71b8a8ea68"
 
 [[package]]
 name = "raw-window-handle"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2ff9a1f06a88b01621b7ae906ef0211290d1c8a168a15542486a8f61c0833b9"
+
+[[package]]
+name = "raw-window-handle"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
@@ -6996,6 +7097,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
+name = "scraper"
+version = "0.19.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "761fb705fdf625482d2ed91d3f0559dcfeab2798fe2771c69560a774865d0802"
+dependencies = [
+ "ahash",
+ "cssparser 0.31.2",
+ "ego-tree",
+ "getopts",
+ "html5ever 0.27.0",
+ "once_cell",
+ "selectors 0.25.0",
+ "tendril 0.4.3",
+]
+
+[[package]]
 name = "security-framework"
 version = "3.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7033,6 +7150,25 @@ dependencies = [
  "phf_codegen 0.8.0",
  "precomputed-hash",
  "servo_arc 0.2.0",
+ "smallvec",
+]
+
+[[package]]
+name = "selectors"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4eb30575f3638fc8f6815f448d50cb1a2e255b0897985c8c59f4d37b72a07b06"
+dependencies = [
+ "bitflags 2.11.0",
+ "cssparser 0.31.2",
+ "derive_more 0.99.20",
+ "fxhash",
+ "log",
+ "new_debug_unreachable",
+ "phf 0.10.1",
+ "phf_codegen 0.10.0",
+ "precomputed-hash",
+ "servo_arc 0.3.0",
  "smallvec",
 ]
 
@@ -7285,6 +7421,15 @@ dependencies = [
 
 [[package]]
 name = "servo_arc"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d036d71a959e00c77a63538b90a6c2390969f9772b096ea837205c6bd0491a44"
+dependencies = [
+ "stable_deref_trait",
+]
+
+[[package]]
+name = "servo_arc"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "170fb83ab34de17dc69aa7c67482b22218ddb85da56546f9bd6b929e32a05930"
@@ -7492,7 +7637,7 @@ dependencies = [
  "objc2-core-graphics",
  "objc2-foundation",
  "objc2-quartz-core",
- "raw-window-handle",
+ "raw-window-handle 0.6.2",
  "redox_syscall",
  "tracing",
  "wasm-bindgen",
@@ -7962,7 +8107,7 @@ dependencies = [
  "objc2-foundation",
  "once_cell",
  "parking_lot",
- "raw-window-handle",
+ "raw-window-handle 0.6.2",
  "tao-macros",
  "unicode-segmentation",
  "url",
@@ -8025,7 +8170,7 @@ dependencies = [
  "objc2-web-kit",
  "percent-encoding",
  "plist",
- "raw-window-handle",
+ "raw-window-handle 0.6.2",
  "reqwest 0.13.2",
  "serde",
  "serde_json",
@@ -8184,7 +8329,7 @@ dependencies = [
  "objc2",
  "objc2-ui-kit",
  "objc2-web-kit",
- "raw-window-handle",
+ "raw-window-handle 0.6.2",
  "serde",
  "serde_json",
  "tauri-utils",
@@ -8209,7 +8354,7 @@ dependencies = [
  "objc2-app-kit",
  "once_cell",
  "percent-encoding",
- "raw-window-handle",
+ "raw-window-handle 0.6.2",
  "softbuffer",
  "tao",
  "tauri-runtime",
@@ -9243,6 +9388,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "webbrowser"
+version = "0.8.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db67ae75a9405634f5882791678772c94ff5f16a66535aae186e26aa0841fc8b"
+dependencies = [
+ "core-foundation 0.9.4",
+ "home",
+ "jni",
+ "log",
+ "ndk-context",
+ "objc",
+ "raw-window-handle 0.5.2",
+ "url",
+ "web-sys",
+]
+
+[[package]]
 name = "webkit2gtk"
 version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9390,7 +9552,7 @@ dependencies = [
  "objc2-app-kit",
  "objc2-core-foundation",
  "objc2-foundation",
- "raw-window-handle",
+ "raw-window-handle 0.6.2",
  "windows-sys 0.59.0",
  "windows-version",
 ]
@@ -10073,7 +10235,7 @@ dependencies = [
  "objc2-web-kit",
  "once_cell",
  "percent-encoding",
- "raw-window-handle",
+ "raw-window-handle 0.6.2",
  "sha2",
  "soup3",
  "tao-macros",

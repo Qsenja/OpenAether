@@ -28,8 +28,11 @@ export const InputBar: React.FC<InputBarProps> = ({ onSendMessage, onStop, statu
   // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
+      textareaRef.current.style.height = '24px'; // Base height
+      if (text) {
+        textareaRef.current.style.height = 'auto';
+        textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
+      }
     }
   }, [text]);
 
@@ -37,31 +40,28 @@ export const InputBar: React.FC<InputBarProps> = ({ onSendMessage, onStop, statu
 
   return (
     <div style={{
-      padding: '8px 20px',
-      maxWidth: '750px',
-      width: '100%',
+      padding: '0 24px 12px',
       margin: '0 auto',
+      width: '100%',
       display: 'flex',
       flexDirection: 'column',
-      gap: '8px'
+      alignItems: 'center',
+      gap: '4px',
+      animation: 'fadeIn 0.6s ease-out'
     }}>
-      <div className="glass" style={{
-        borderRadius: '12px',
-        padding: '8px 14px',
-        display: 'flex',
-        alignItems: 'flex-end',
-        gap: '10px',
-        boxShadow: '0 4px 15px rgba(0, 0, 0, 0.3)',
-        border: '1px solid rgba(47, 160, 132, 0.2)',
-        opacity: isConnected ? 1 : 0.6,
-        pointerEvents: isConnected ? 'auto' : 'none'
+      <div className="glass slim-input-fix" style={{
+        borderRadius: 'var(--radius-pill)',
+        width: '100%',
+        transition: 'all 0.3s ease',
+        backdropFilter: 'blur(30px)',
+        gap: '12px'
       }}>
         <textarea
           ref={textareaRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={isConnected ? "Message Aether Core..." : "Offline - Waiting for backend..."}
+          placeholder={isConnected ? "Message Fabel..." : "Connecting..."}
           disabled={!isConnected}
           style={{
             flex: 1,
@@ -70,11 +70,13 @@ export const InputBar: React.FC<InputBarProps> = ({ onSendMessage, onStop, statu
             outline: 'none',
             color: 'var(--text-main)',
             fontFamily: 'var(--font-main)',
-            fontSize: '0.95rem',
+            fontSize: '1rem',
             resize: 'none',
             maxHeight: '150px',
-            padding: '6px 0',
-            lineHeight: '1.4'
+            padding: '0',
+            lineHeight: '24px',
+            height: '24px',
+            fontWeight: 400
           }}
         />
         
@@ -82,10 +84,10 @@ export const InputBar: React.FC<InputBarProps> = ({ onSendMessage, onStop, statu
           onClick={isBusy ? onStop : handleSend}
           disabled={!isConnected && !isBusy}
           style={{
-            background: isBusy ? '#ff4d4d' : 'var(--primary)',
+            background: isBusy ? 'var(--danger)' : 'var(--primary)',
             color: 'white',
             border: 'none',
-            borderRadius: '10px',
+            borderRadius: '50%',
             width: '32px',
             height: '32px',
             display: 'flex',
@@ -94,17 +96,16 @@ export const InputBar: React.FC<InputBarProps> = ({ onSendMessage, onStop, statu
             cursor: 'pointer',
             transition: 'all 0.2s ease',
             flexShrink: 0,
-            marginBottom: '3px',
-            opacity: isConnected || isBusy ? 1 : 0.5
+            opacity: isConnected || isBusy ? 1 : 0.5,
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)'
           }}
-          title={isBusy ? "Stop Generation" : "Send Message"}
         >
           {isBusy ? (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
               <rect x="6" y="6" width="12" height="12" rx="2" />
             </svg>
           ) : (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="18" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: 'translateX(1px)' }}>
               <path d="M22 2L11 13" />
               <path d="M22 2L15 22L11 13L2 9L22 2Z" />
             </svg>
@@ -112,13 +113,11 @@ export const InputBar: React.FC<InputBarProps> = ({ onSendMessage, onStop, statu
         </button>
       </div>
       <div style={{
-        fontSize: '0.7rem',
+        fontSize: '0.65rem',
         color: 'var(--text-dim)',
-        textAlign: 'center',
-        fontFamily: 'var(--font-main)',
-        opacity: 0.5
+        opacity: 0.2
       }}>
-        OpenAether can make mistakes. Check important info.
+        OpenAether
       </div>
     </div>
   );

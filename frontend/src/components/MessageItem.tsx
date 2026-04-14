@@ -10,7 +10,7 @@ interface MessageItemProps {
   isLast: boolean;
 }
 
-export const MessageItem: React.FC<MessageItemProps> = ({ message, status, isLast }) => {
+export const MessageItem: React.FC<MessageItemProps> = ({ message, status }) => {
   const isAssistant = message.role === 'assistant';
 
   if (!isAssistant) {
@@ -18,17 +18,14 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, status, isLas
       <div style={{
         display: 'flex',
         justifyContent: 'flex-end',
-        margin: '16px 0',
+        margin: '24px 0',
+        animation: 'fadeIn 0.4s ease-out'
       }}>
-        <div style={{
+        <div className="user-bubble-fix" style={{
           maxWidth: '85%',
-          padding: '12px 18px',
-          borderRadius: '20px 20px 4px 20px',
           color: 'var(--text-main)',
-          background: 'rgba(249, 115, 22, 0.1)', /* Orange tint */
-          border: '1px solid var(--glass-border)',
           lineHeight: '1.6',
-          fontSize: '0.95rem',
+          fontSize: '0.9rem',
           boxShadow: 'var(--shadow-sm)'
         }}>
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -51,30 +48,22 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, status, isLas
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {block.content}
             </ReactMarkdown>
-            {isLast && index === (message.sequence?.length || 0) - 1 && (status === 'thinking' || status === 'executing') && (
-              <span className="cursor">_</span>
-            )}
           </div>
         );
       
       case 'thought':
         return (
           <div key={index} style={{
-            fontFamily: 'var(--font-thinking)',
+            fontFamily: 'var(--font-main)',
             color: 'var(--text-dim)',
             fontSize: '0.85rem',
-            padding: '12px 16px',
+            padding: '2px 14px',
             borderLeft: '2px solid var(--primary)',
-            background: 'rgba(255, 255, 255, 0.02)',
-            marginBottom: '16px',
-            fontStyle: 'italic',
-            borderRadius: '0 8px 8px 0',
-            opacity: 0.8
+            marginBottom: '12px',
+            opacity: 0.7,
+            animation: status === 'thinking' ? 'pulse-soft 2s infinite' : 'none'
           }}>
             {block.content}
-            {isLast && index === (message.sequence?.length || 0) - 1 && status === 'thinking' && (
-              <span className="cursor">_</span>
-            )}
           </div>
         );
 
@@ -100,48 +89,46 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, status, isLas
     <div style={{
       display: 'flex',
       flexDirection: 'column',
-      margin: '24px 0',
-      maxWidth: '90%'
+      margin: '18px 0',
+      maxWidth: '92%',
+      animation: 'fadeIn 0.5s ease-out'
     }}>
       <div style={{
         display: 'flex',
         alignItems: 'center',
-        gap: '10px',
-        marginBottom: '12px'
+        gap: '12px',
+        marginBottom: '14px'
       }}>
-        <div className="glass" style={{
+        <div style={{
           width: '32px',
           height: '32px',
-          borderRadius: '10px',
+          borderRadius: '12px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          border: '1px solid var(--primary)'
+          background: 'var(--primary)',
+          boxShadow: '0 0 15px var(--primary-glow)'
         }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
             <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
           </svg>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
           <span style={{ 
             color: 'var(--primary)', 
-            fontWeight: 800, 
-            fontSize: '0.75rem',
-            textTransform: 'uppercase',
-            letterSpacing: '0.1rem'
+            fontWeight: 700, 
+            fontSize: '0.9rem',
+            letterSpacing: '0.02rem',
+            textShadow: '0 0 10px var(--primary-glow)'
           }}>
-            Aether Core
-          </span>
-          <span style={{ fontSize: '0.65rem', color: 'var(--text-dim)', opacity: 0.6 }}>
-            Intelligence Engine v2.5
+            Fabel
           </span>
         </div>
       </div>
 
-      <div style={{
-        paddingLeft: '42px',
-        lineHeight: '1.7',
-        fontSize: '1rem'
+      <div className="ai-ambient-text" style={{
+        lineHeight: '1.6',
+        fontSize: '0.9rem'
       }}>
         {message.sequence ? (
           message.sequence.map((block, i) => renderBlock(block, i))
@@ -150,56 +137,11 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, status, isLas
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {message.content}
             </ReactMarkdown>
-            {isLast && (status === 'thinking' || status === 'executing') && (
-              <span className="cursor">_</span>
-            )}
           </div>
         )}
       </div>
 
-      <style>{`
-        @keyframes blink {
-          0%, 100% { opacity: 0; }
-          50% { opacity: 1; }
-        }
-        .cursor {
-          display: inline-block;
-          color: var(--primary);
-          margin-left: 4px;
-          font-weight: bold;
-          animation: blink 1s infinite;
-        }
-        .markdown-content p {
-          margin-bottom: 12px;
-        }
-        .markdown-content p:last-child {
-          margin-bottom: 0;
-        }
-        .markdown-content a {
-          color: var(--primary);
-          text-decoration: none;
-          font-weight: 600;
-          border-bottom: 1px solid transparent;
-          transition: border-color 0.2s;
-        }
-        .markdown-content a:hover {
-          border-color: var(--primary);
-        }
-        .markdown-content ul, .markdown-content ol {
-          margin: 12px 0;
-          padding-left: 20px;
-        }
-        .markdown-content li {
-          margin-bottom: 6px;
-        }
-        .markdown-content code {
-          background: rgba(255,255,255,0.08);
-          padding: 2px 6px;
-          border-radius: 4px;
-          font-family: var(--font-mono);
-          font-size: 0.85em;
-        }
-      `}</style>
+
     </div>
   );
 };

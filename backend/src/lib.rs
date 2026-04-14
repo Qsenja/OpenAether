@@ -28,7 +28,7 @@ async fn send_message(
     let system_prompt_path = base_path.join("../logic/config/system_prompt.txt");
     let system_prompt = std::fs::read_to_string(&system_prompt_path).unwrap_or_else(|_| {
         state.logger.log("SYSTEM", "Warning: Could not read system_prompt.txt, using default.");
-        "You are Aether Core.".into()
+        "You are Fabel.".into()
     });
 
     // 1. Fetch available tools from bridge
@@ -40,9 +40,9 @@ async fn send_message(
         }
     };
 
-    let (model, temperature) = {
+    let (model, temperature, top_p, searxng_url) = {
         let s = state.settings.lock().unwrap();
-        (s.ollama_model.clone(), s.temperature)
+        (s.ollama_model.clone(), s.temperature, s.top_p, s.searxng_url.clone())
     };
 
     let agent = Agent::new(
@@ -54,6 +54,8 @@ async fn send_message(
         system_prompt,
         schemas,
         temperature,
+        top_p,
+        searxng_url,
     );
 
     let app_clone = app.clone();

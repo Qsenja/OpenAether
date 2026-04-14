@@ -10,6 +10,7 @@ use rig::{
     prelude::*,
     streaming::StreamingChat,
     tool::{ToolDyn, ToolError},
+    vector_store::{VectorSearchRequest, VectorStoreIndex},
 };
 use rig::wasm_compat::WasmBoxedFuture;
 use serde_json::json;
@@ -30,6 +31,8 @@ pub struct Agent {
     system_prompt: String,
     available_tools: Vec<serde_json::Value>,
     temperature: f64,
+    top_p: f64,
+    searxng_url: String,
 }
 
 struct PythonTool {
@@ -141,6 +144,8 @@ impl Agent {
         system_prompt: String,
         available_tools: Vec<serde_json::Value>,
         temperature: f64,
+        top_p: f64,
+        searxng_url: String,
     ) -> Self {
         let ollama_client = rig::providers::ollama::Client::builder()
             .base_url("http://localhost:11434")
@@ -157,6 +162,8 @@ impl Agent {
             system_prompt,
             available_tools,
             temperature,
+            top_p,
+            searxng_url,
         }
     }
 
@@ -203,46 +210,103 @@ impl Agent {
             logger: self.logger.clone(),
         }));
 
-        // 2. Window Context Injection
+        // Add native preskills
+        rig_tools.push(Box::new(crate::logic::preskills::web::WebSearchTool {
+            searxng_url: self.searxng_url.clone(),
+            logger: self.logger.clone(),
+        }));
+        rig_tools.push(Box::new(crate::logic::preskills::web::FetchUrlTool {
+            logger: self.logger.clone(),
+        }));
+        rig_tools.push(Box::new(crate::logic::preskills::web::ScanNetworkTool {
+            shell: self.shell.clone(),
+        }));
+        rig_tools.push(Box::new(crate::logic::preskills::web::GetWifiInfoTool {
+            shell: self.shell.clone(),
+        }));
+        rig_tools.push(Box::new(crate::logic::preskills::web::CheckPortTool));
+        rig_tools.push(Box::new(crate::logic::preskills::web::SshCommandTool {
+            shell: self.shell.clone(),
+        }));
+        rig_tools.push(Box::new(crate::logic::preskills::web::GetDeviceInfoTool {
+            shell: self.shell.clone(),
+        }));
+        rig_tools.push(Box::new(crate::logic::preskills::web::OpenWebsiteTool {
+            logger: self.logger.clone(),
+        }));
+
+        // 2. Window Context Injection (Filtered for intelligence)
         let mut window_context = String::new();
         if let Ok(res) = self.shell.execute("hyprctl clients -j", Duration::from_secs(2)).await {
-            window_context = format!(
-                "\n\n[ACTUAL OPEN WINDOWS]: {}",
-                serde_json::to_string(&res).unwrap_or_default()
-            );
+            // Unpack the shell result which is {status: "success", output: "..."}
+            if let Some(raw_output) = res.get("output").and_then(|o| o.as_str()) {
+                let windows: Vec<serde_json::Value> = serde_json::from_str(raw_output).unwrap_or_default();
+                let filtered: Vec<String> = windows.into_iter()
+                    .filter(|w| w.get("title").and_then(|t| t.as_str()).map(|s| !s.is_empty()).unwrap_or(false))
+                    .map(|w| {
+                        let focused = if w.get("focus").and_then(|f| f.as_bool()).unwrap_or(false) { " [FOCUSED]" } else { "" };
+                        format!("{}: {} (Workspace {}){}", 
+                            w.get("class").and_then(|c| c.as_str()).unwrap_or("Unknown"),
+                            w.get("title").and_then(|t| t.as_str()).unwrap_or("Untitled"),
+                            w.get("workspace").and_then(|ws| ws.get("id")).and_then(|id| id.as_i64()).unwrap_or(0),
+                            focused
+                        )
+                    })
+                    .collect();
+                
+                if !filtered.is_empty() {
+                    window_context = format!(
+                        "\n\n[OPEN WINDOWS]:\n{}",
+                        filtered.join("\n")
+                    );
+                }
+            }
         }
 
-        // 3. Setup Memory Context
-        let _index = match self.memory_manager.get_index().await {
-            Ok(idx) => Some(idx),
-            Err(e) => {
-                self.logger.log(
-                    "AGENT",
-                    &format!("Warning: Could not initialize memory index: {}", e),
-                );
-                None
-            }
-        };
+        // 3. Run the Agent with history support
+        let user_query = messages
+            .last()
+            .map(|m| m.content.clone())
+            .unwrap_or_default();
 
-        // 4. Build the Rig Agent
+        // 4. Setup Memory Context (Retrieval-Augmented Generation)
+        let mut memory_context = String::new();
+        if let Ok(index) = self.memory_manager.get_index().await {
+            // Search for top 3 relevant conversations/facts
+            let request = VectorSearchRequest::builder()
+                .query(&user_query)
+                .samples(3)
+                .build()
+                .ok();
+
+            if let Some(req) = request {
+                if let Ok(results) = index.top_n::<TextRecord>(req).await {
+                    if !results.is_empty() {
+                        memory_context = String::from("\n\n[RELEVANT MEMORIES FROM PAST CONVERSATIONS]:");
+                        for (_, _, record) in results {
+                            memory_context.push_str(&format!("\n- {}", record.text.trim()));
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5. Build the Rig Agent with Dynamic Preamble
+        let preamble = format!("{}{}{}", self.system_prompt, window_context, memory_context);
+        
         let rig_agent = self
             .ollama_client
             .agent(model)
-            .preamble(&(self.system_prompt.clone() + &window_context))
+            .preamble(&preamble)
             .additional_params(json!({
                 "options": {
-                    "temperature": self.temperature
+                    "temperature": self.temperature,
+                    "top_p": self.top_p
                 }
             }))
             .default_max_turns(10)
             .tools(rig_tools)
             .build();
-
-        // 5. Run the Agent with history support
-        let user_query = messages
-            .last()
-            .map(|m| m.content.clone())
-            .unwrap_or_default();
 
         // Convert history to Rig messages (excluding the last message which is the current query)
         let history = messages

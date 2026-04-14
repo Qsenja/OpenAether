@@ -16,7 +16,7 @@ export const ToolTile: React.FC<ToolTileProps> = ({ toolCall, toolOutput }) => {
       style={{
         margin: '12px 0',
         overflow: 'hidden',
-        background: isDone ? 'rgba(74, 222, 128, 0.03)' : 'rgba(47, 160, 132, 0.03)',
+        background: isDone ? 'rgba(16, 185, 129, 0.04)' : 'rgba(251, 146, 60, 0.04)',
         borderLeft: `3px solid ${isDone ? 'var(--success)' : 'var(--primary)'}`
       }}
     >

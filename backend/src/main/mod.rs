@@ -6,6 +6,7 @@ pub mod bridge;
 pub mod agent;
 pub mod memory;
 pub mod shell;
+pub mod preskills;
 
 use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
