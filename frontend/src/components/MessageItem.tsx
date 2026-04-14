@@ -10,7 +10,7 @@ interface MessageItemProps {
   isLast: boolean;
 }
 
-export const MessageItem: React.FC<MessageItemProps> = ({ message, status }) => {
+export const MessageItem: React.FC<MessageItemProps> = ({ message, status, isLast }) => {
   const isAssistant = message.role === 'assistant';
 
   if (!isAssistant) {
@@ -36,18 +36,23 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, status }) => 
     );
   }
 
-  const renderBlock = (block: Block, index: number) => {
+  const renderBlock = (block: Block, index: number, isLastBlock: boolean) => {
     switch (block.type) {
       case 'text':
         return (
           <div key={index} className="markdown-content" style={{ 
             marginBottom: '12px',
             color: 'var(--text-main)',
-            opacity: 0.95
+            opacity: 0.95,
+            display: 'inline-block',
+            width: '100%'
           }}>
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {block.content}
             </ReactMarkdown>
+            {isLastBlock && isLast && (status === 'thinking' || status === 'executing') && (
+              <span className="blinking-cursor" />
+            )}
           </div>
         );
       
@@ -131,12 +136,15 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, status }) => 
         fontSize: '0.9rem'
       }}>
         {message.sequence ? (
-          message.sequence.map((block, i) => renderBlock(block, i))
+          message.sequence.map((block, i) => renderBlock(block, i, i === message.sequence!.length - 1))
         ) : (
           <div className="markdown-content">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {message.content}
             </ReactMarkdown>
+            {isLast && (status === 'thinking' || status === 'executing') && (
+              <span className="blinking-cursor" />
+            )}
           </div>
         )}
       </div>

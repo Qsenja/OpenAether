@@ -98,13 +98,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
               onChange={e => updateField('temperature', parseFloat(e.target.value))}
               style={{ accentColor: 'var(--primary)', cursor: 'pointer' }}
             />
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Lower is more focused/logical, higher is more creative.</p>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+              Lower is more focused/logical, higher is more creative.
+            </p>
+            {localSettings.temperature > 0.8 && (
+              <p style={{ fontSize: '0.75rem', color: '#f97316', fontWeight: 600 }}>
+                ⚠️ High values may cause hallucinations or strange languages.
+              </p>
+            )}
+            {localSettings.temperature < 0.1 && (
+              <p style={{ fontSize: '0.75rem', color: '#ef4444', fontWeight: 600 }}>
+                ⚠️ Very low values may cause repetitive loops.
+              </p>
+            )}
           </div>
 
-          {/* Top P */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <label style={{ fontSize: '0.9rem', color: 'var(--text-dim)', fontWeight: 600 }}>Top P</label>
+              <label style={{ fontSize: '0.9rem', color: 'var(--text-dim)', fontWeight: 600 }}>Top P (Nucleus Sampling)</label>
               <span style={{ fontSize: '0.9rem', color: 'var(--primary)', fontWeight: 700 }}>{localSettings.top_p}</span>
             </div>
             <input 
@@ -116,6 +127,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
               onChange={e => updateField('top_p', parseFloat(e.target.value))}
               style={{ accentColor: 'var(--primary)', cursor: 'pointer' }}
             />
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+              Filters vocabulary to the top percentage of likely words. Helps prevent "boring" or overly generic answers.
+            </p>
           </div>
 
           {/* Log Level */}

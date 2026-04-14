@@ -163,3 +163,20 @@ body {
   border-radius: 18px 18px 4px 18px !important;
   padding: 10px 16px !important;
 }
+
+@keyframes cursor-blink {
+  0% { opacity: 0; }
+  50% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.blinking-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.1em;
+  background-color: var(--primary);
+  margin-left: 4px;
+  vertical-align: middle;
+  animation: cursor-blink 1s step-end infinite;
+  box-shadow: 0 0 8px var(--primary-glow);
+}
