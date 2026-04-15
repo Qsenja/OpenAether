@@ -82,6 +82,29 @@ impl OllamaClient {
         Ok(stream)
     }
 
+    pub async fn chat(
+        &self,
+        model: &str,
+        messages: Vec<Message>,
+    ) -> Result<ChatResponse> {
+        let url = format!("{}/api/chat", self.base_url);
+        let body = ChatRequest {
+            model: model.to_string(),
+            messages,
+            stream: false,
+            options: None,
+        };
+
+        let response = self.client.post(&url).json(&body).send().await?;
+        
+        if !response.status().is_success() {
+            return Err(anyhow!("Ollama error: {}", response.status()));
+        }
+
+        let res: ChatResponse = response.json().await?;
+        Ok(res)
+    }
+
     pub async fn pull_model(
         &self,
         name: &str,

@@ -236,10 +236,12 @@ export function useBackend() {
     }
   }, [messages]);
 
-  const stopGeneration = useCallback(() => {
-    // In this Rust version, we might need a specific command to flag a stop
-    // For now, we'll just log it.
-    logToTerminal('Stop requested (not fully implemented in Rust agent yet)');
+  const stopGeneration = useCallback(async () => {
+    try {
+      await invoke('stop_generation');
+    } catch (e: any) {
+      logToTerminal(`Stop Generation Error: ${e}`);
+    }
   }, []);
 
   const retry = useCallback(() => {

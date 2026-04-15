@@ -1,7 +1,7 @@
-use crate::logic::bridge::PythonBridge;
 use crate::logic::logger::Logger;
 use crate::logic::memory::{MemoryManager, TextRecord};
 use crate::logic::shell::ShellManager;
+use tokio_util::sync::CancellationToken;
 use anyhow::{anyhow, Result};
 use futures_util::StreamExt;
 use rig::{
@@ -18,6 +18,32 @@ use std::sync::Arc;
 use std::time::Duration;
 use regex::Regex;
 
+struct MinimalTool {
+    inner: Box<dyn ToolDyn>,
+}
+
+impl ToolDyn for MinimalTool {
+    fn name(&self) -> String {
+        self.inner.name()
+    }
+
+    fn definition<'a>(&'a self, prompt: String) -> WasmBoxedFuture<'a, ToolDefinition> {
+        let inner_fut = self.inner.definition(prompt);
+        Box::pin(async move {
+            let mut def = inner_fut.await;
+            // Only de-bloat non-core tools
+            if def.name != "discover_tools" && def.name != "run_command" {
+                def.description = format!("Action: {} (Use discover_tools for details)", def.name);
+            }
+            def
+        })
+    }
+
+    fn call<'a>(&'a self, args: String) -> WasmBoxedFuture<'a, Result<String, ToolError>> {
+        self.inner.call(args)
+    }
+}
+
 use arrow_array::{
     types::Float32Type, ArrayRef, FixedSizeListArray, RecordBatch, RecordBatchIterator, StringArray,
 };
@@ -25,8 +51,8 @@ use arrow_schema::{DataType, Field, Fields, Schema};
 
 pub struct Agent {
     ollama_client: rig::providers::ollama::Client,
-    bridge: Arc<PythonBridge>,
-    memory_manager: Arc<MemoryManager>,
+    ollama: Arc<crate::logic::ollama::OllamaClient>,
+    memory: Arc<MemoryManager>,
     shell: Arc<ShellManager>,
     logger: Arc<Logger>,
     system_prompt: String,
@@ -36,53 +62,10 @@ pub struct Agent {
     searxng_url: String,
 }
 
-struct PythonTool {
-    name: String,
-    description: String,
-    parameters: serde_json::Value,
-    bridge: Arc<PythonBridge>,
-    logger: Arc<Logger>,
-}
-
-impl ToolDyn for PythonTool {
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
-    fn definition<'a>(&'a self, _prompt: String) -> WasmBoxedFuture<'a, ToolDefinition> {
-        let def = ToolDefinition {
-            name: self.name.clone(),
-            description: self.description.clone(),
-            parameters: self.parameters.clone(),
-        };
-        Box::pin(async move { def })
-    }
-
-    fn call<'a>(&'a self, args: String) -> WasmBoxedFuture<'a, Result<String, ToolError>> {
-        let bridge = self.bridge.clone();
-        let name = self.name.clone();
-        Box::pin(async move {
-            let json_args: serde_json::Value = serde_json::from_str(&args)
-                .map_err(|e| ToolError::ToolCallError(e.to_string().into()))?;
-            let json_args_clone = json_args.clone();
-
-            let res = match bridge.execute(&name, json_args) {
-                Ok(res) => Ok(res.to_string()),
-                Err(e) => Err(ToolError::ToolCallError(e.to_string().into())),
-            };
-
-            if let Ok(ref output) = res {
-                self.logger.log_tool(&name, json_args_clone, output);
-            }
-
-            res
-        })
-    }
-}
 
 // Native tool to discover other tools via RAG
 struct DiscoverTools {
-    memory_manager: Arc<MemoryManager>,
+    memory: Arc<MemoryManager>,
     logger: Arc<Logger>,
 }
 
@@ -116,7 +99,7 @@ impl ToolDyn for DiscoverTools {
     }
 
     fn call<'a>(&'a self, args: String) -> WasmBoxedFuture<'a, Result<String, ToolError>> {
-        let memory = self.memory_manager.clone();
+        let memory = self.memory.clone();
         let logger = self.logger.clone();
         Box::pin(async move {
             let json_args: DiscoverToolsArgs = serde_json::from_str(&args)
@@ -206,9 +189,8 @@ impl ToolDyn for RunCommandTool {
 
 impl Agent {
     pub fn new(
-        _ollama: Arc<crate::logic::ollama::OllamaClient>,
-        bridge: Arc<PythonBridge>,
-        memory_manager: Arc<MemoryManager>,
+        ollama: Arc<crate::logic::ollama::OllamaClient>,
+        memory: Arc<MemoryManager>,
         shell: Arc<ShellManager>,
         logger: Arc<Logger>,
         system_prompt: String,
@@ -225,8 +207,8 @@ impl Agent {
 
         Self {
             ollama_client,
-            bridge,
-            memory_manager,
+            ollama,
+            memory: memory,
             shell,
             logger,
             system_prompt,
@@ -237,34 +219,93 @@ impl Agent {
         }
     }
 
-    pub fn get_all_tool_definitions(&self) -> Vec<serde_json::Value> {
+    fn get_native_tools(&self) -> Vec<Box<dyn ToolDyn>> {
+        let mut tools: Vec<Box<dyn ToolDyn>> = Vec::new();
+        
+        // Base native tools
+        tools.push(Box::new(RunCommandTool {
+            shell: self.shell.clone(),
+            logger: self.logger.clone(),
+        }));
+        tools.push(Box::new(DiscoverTools {
+            memory: self.memory.clone(),
+            logger: self.logger.clone(),
+        }));
+
+        // Native preskills - Web
+        tools.push(Box::new(crate::logic::preskills::web::WebSearchTool {
+            searxng_url: self.searxng_url.clone(),
+            logger: self.logger.clone(),
+        }));
+        tools.push(Box::new(crate::logic::preskills::web::FetchUrlTool {
+            logger: self.logger.clone(),
+        }));
+        tools.push(Box::new(crate::logic::preskills::web::ScanNetworkTool {
+            shell: self.shell.clone(),
+        }));
+        tools.push(Box::new(crate::logic::preskills::web::GetWifiInfoTool {
+            shell: self.shell.clone(),
+        }));
+        tools.push(Box::new(crate::logic::preskills::web::CheckPortTool));
+        tools.push(Box::new(crate::logic::preskills::web::SshCommandTool {
+            shell: self.shell.clone(),
+        }));
+        tools.push(Box::new(crate::logic::preskills::web::GetDeviceInfoTool {
+            shell: self.shell.clone(),
+        }));
+        tools.push(Box::new(crate::logic::preskills::web::OpenWebsiteTool {
+            logger: self.logger.clone(),
+        }));
+
+        // Native preskills - Core
+        tools.push(Box::new(crate::logic::preskills::core::RememberTool {
+            logger: self.logger.clone(),
+        }));
+        tools.push(Box::new(crate::logic::preskills::core::RecallTool));
+        tools.push(Box::new(crate::logic::preskills::core::SetTimerTool {
+            logger: self.logger.clone(),
+        }));
+        tools.push(Box::new(crate::logic::preskills::core::ScheduleTaskTool {
+            logger: self.logger.clone(),
+        }));
+        tools.push(Box::new(crate::logic::preskills::core::GetDateTimeTool));
+        tools.push(Box::new(crate::logic::preskills::core::TranslateTool {
+            ollama: self.ollama.clone(),
+            logger: self.logger.clone(),
+        }));
+        tools.push(Box::new(crate::logic::preskills::core::RunPythonTool {
+            logger: self.logger.clone(),
+        }));
+        tools.push(Box::new(crate::logic::preskills::core::CalculateDiscountTool));
+        tools.push(Box::new(crate::logic::preskills::core::ReportErrorTool {
+            logger: self.logger.clone(),
+        }));
+        tools.push(Box::new(crate::logic::preskills::package_manager::PackageManagerTool {
+            logger: self.logger.clone(),
+        }));
+        tools.push(Box::new(crate::logic::preskills::desktop::DesktopTool {
+            logger: self.logger.clone(),
+        }));
+        tools.push(Box::new(crate::logic::preskills::system::SystemTool {
+            logger: self.logger.clone(),
+        }));
+
+        tools
+    }
+
+    pub async fn get_all_tool_definitions(&self) -> Vec<serde_json::Value> {
         let mut defs = self.available_tools.clone();
         
-        // Add native tool schemas manually for indexing
-        defs.push(json!({
-            "name": "run_command",
-            "description": "Run a generic shell command. This session is persistent and maintains directory/environment between calls."
-        }));
-        defs.push(json!({
-            "name": "discover_tools",
-            "description": "Search your internal knowledge base for tools that can help fulfill the request. Use this if you don't know the name of a specific tool."
-        }));
-        defs.push(json!({
-            "name": "web_search",
-            "description": "Search the web for current information, news, or specific facts."
-        }));
-        defs.push(json!({
-            "name": "fetch_url",
-            "description": "Extract the text content from a specific URL. Useful for reading articles or deep-diving into a result."
-        }));
-        defs.push(json!({
-            "name": "scan_network",
-            "description": "Scan the local network for active devices and open ports using nmap."
-        }));
-        defs.push(json!({
-            "name": "get_wifi_info",
-            "description": "List available Wi-Fi networks and connection status."
-        }));
+        // Dynamically gather native tool definitions for indexing
+        let native_tools = self.get_native_tools();
+        for tool in native_tools {
+            let def = tool.definition("".to_string()).await;
+            defs.push(json!({
+                "name": def.name,
+                "description": def.description,
+                "parameters": def.parameters
+            }));
+        }
         
         defs
     }
@@ -296,6 +337,7 @@ impl Agent {
         &self,
         messages: &mut Vec<crate::logic::ollama::Message>,
         model: &str,
+        token: CancellationToken,
         mut event_callback: F,
     ) -> Result<()>
     where
@@ -303,66 +345,16 @@ impl Agent {
     {
         self.logger.log("AGENT", "Initializing Rig Agent");
 
-        // 1. Build Rig tools
+        // 1. Tool Selection (Native tools only)
         let mut rig_tools: Vec<Box<dyn ToolDyn>> = Vec::new();
-        for tool in &self.available_tools {
-            if let Some(func) = tool.get("function") {
-                let name = func
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("unknown")
-                    .to_string();
-                let description = func
-                    .get("description")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let parameters = func.get("parameters").cloned().unwrap_or(json!({}));
 
-                rig_tools.push(Box::new(PythonTool {
-                    name,
-                    description,
-                    parameters,
-                    bridge: self.bridge.clone(),
-                    logger: self.logger.clone(),
-                }));
-            }
+        // Add native tools (wrapped for minimal bloat)
+        let native_tools = self.get_native_tools();
+        for tool in native_tools {
+            // Keep discover_tools and run_command with descriptions? 
+            // Better to minimize ALL as requested.
+            rig_tools.push(Box::new(MinimalTool { inner: tool }));
         }
-
-        // Add native tools
-        rig_tools.push(Box::new(RunCommandTool {
-            shell: self.shell.clone(),
-            logger: self.logger.clone(),
-        }));
-        rig_tools.push(Box::new(DiscoverTools {
-            memory_manager: self.memory_manager.clone(),
-            logger: self.logger.clone(),
-        }));
-
-        // Add native preskills
-        rig_tools.push(Box::new(crate::logic::preskills::web::WebSearchTool {
-            searxng_url: self.searxng_url.clone(),
-            logger: self.logger.clone(),
-        }));
-        rig_tools.push(Box::new(crate::logic::preskills::web::FetchUrlTool {
-            logger: self.logger.clone(),
-        }));
-        rig_tools.push(Box::new(crate::logic::preskills::web::ScanNetworkTool {
-            shell: self.shell.clone(),
-        }));
-        rig_tools.push(Box::new(crate::logic::preskills::web::GetWifiInfoTool {
-            shell: self.shell.clone(),
-        }));
-        rig_tools.push(Box::new(crate::logic::preskills::web::CheckPortTool));
-        rig_tools.push(Box::new(crate::logic::preskills::web::SshCommandTool {
-            shell: self.shell.clone(),
-        }));
-        rig_tools.push(Box::new(crate::logic::preskills::web::GetDeviceInfoTool {
-            shell: self.shell.clone(),
-        }));
-        rig_tools.push(Box::new(crate::logic::preskills::web::OpenWebsiteTool {
-            logger: self.logger.clone(),
-        }));
 
         // 2. Window Context Injection (Filtered for intelligence)
         let mut window_context = String::new();
@@ -400,7 +392,7 @@ impl Agent {
 
         // 4. Setup Memory Context (Retrieval-Augmented Generation)
         let mut memory_context = String::new();
-        if let Ok(index) = self.memory_manager.get_index().await {
+        if let Ok(index) = self.memory.get_index().await {
             // Search for top 3 relevant conversations/facts
             let request = VectorSearchRequest::builder()
                 .query(&user_query)
@@ -460,54 +452,68 @@ impl Agent {
             })
             .collect::<Vec<_>>();
 
+        if token.is_cancelled() {
+            return Ok(());
+        }
+
         // Use streaming for real-time UI updates
         let mut stream = rig_agent.stream_chat(&user_query, history).await;
         let mut assistant_content = String::new();
 
-        while let Some(chunk_res) = stream.next().await {
-            match chunk_res {
-                Ok(item) => match item {
-                    rig::agent::MultiTurnStreamItem::StreamAssistantItem(content) => match content {
-                        rig::streaming::StreamedAssistantContent::Text(text) => {
-                            let text_val = text.text;
-                            
-                            // SHIELD: If this specific chunk looks like a raw JSON tool call,
-                            // we block it from the UI to keep the chat clean.
-                            if (text_val.contains("\"name\":") || text_val.contains("'name':")) && 
-                               (text_val.contains("\"args") || text_val.contains("'args")) {
-                                self.logger.log("AGENT", "SHIELD: Suppressed JSON leak in text stream.");
-                            } else {
-                                assistant_content.push_str(&text_val);
-                                event_callback(json!({"type": "agent_message", "content": text_val}));
-                            }
+        loop {
+            tokio::select! {
+                _ = token.cancelled() => {
+                    self.logger.log("AGENT", "Generation stopped by user.");
+                    event_callback(json!({"type": "agent_message", "content": "\n\n[STOPPED]"}));
+                    break;
+                }
+                chunk_res = stream.next() => {
+                    match chunk_res {
+                        Some(Ok(item)) => match item {
+                            rig::agent::MultiTurnStreamItem::StreamAssistantItem(content) => match content {
+                                rig::streaming::StreamedAssistantContent::Text(text) => {
+                                    let text_val = text.text;
+                                    
+                                    // SHIELD: If this specific chunk looks like a raw JSON tool call,
+                                    // we block it from the UI to keep the chat clean.
+                                    if (text_val.contains("\"name\":") || text_val.contains("'name':")) && 
+                                       (text_val.contains("\"args") || text_val.contains("'args")) {
+                                        self.logger.log("AGENT", "SHIELD: Suppressed JSON leak in text stream.");
+                                    } else {
+                                        assistant_content.push_str(&text_val);
+                                        event_callback(json!({"type": "agent_message", "content": text_val}));
+                                    }
+                                }
+                                rig::streaming::StreamedAssistantContent::ToolCall { tool_call, .. } => {
+                                    self.logger.log("AGENT", &format!("Calling tool: {} ({})", tool_call.function.name, tool_call.id));
+                                    event_callback(json!({
+                                        "type": "tool_call",
+                                        "name": tool_call.function.name,
+                                        "call_id": tool_call.id,
+                                        "args": tool_call.function.arguments.to_string()
+                                    }));
+                                }
+                                _ => {}
+                            },
+                            rig::agent::MultiTurnStreamItem::StreamUserItem(content) => match content {
+                                rig::streaming::StreamedUserContent::ToolResult { tool_result, .. } => {
+                                    self.logger.log("AGENT", &format!("Tool result received for: {}", tool_result.id));
+                                    event_callback(json!({
+                                        "type": "tool_output",
+                                        "name": "tool_result",
+                                        "call_id": tool_result.id,
+                                        "output": format!("{:?}", tool_result.content)
+                                    }));
+                                }
+                            },
+                            _ => {}
+                        },
+                        Some(Err(e)) => {
+                            self.logger.log("AGENT", &format!("Stream error: {}", e));
+                            return Err(anyhow!("Stream error: {}", e));
                         }
-                        rig::streaming::StreamedAssistantContent::ToolCall { tool_call, .. } => {
-                            self.logger.log("AGENT", &format!("Calling tool: {} ({})", tool_call.function.name, tool_call.id));
-                            event_callback(json!({
-                                "type": "tool_call",
-                                "name": tool_call.function.name,
-                                "call_id": tool_call.id,
-                                "args": tool_call.function.arguments.to_string()
-                            }));
-                        }
-                        _ => {}
-                    },
-                    rig::agent::MultiTurnStreamItem::StreamUserItem(content) => match content {
-                        rig::streaming::StreamedUserContent::ToolResult { tool_result, .. } => {
-                            self.logger.log("AGENT", &format!("Tool result received for: {}", tool_result.id));
-                            event_callback(json!({
-                                "type": "tool_output",
-                                "name": "tool_result",
-                                "call_id": tool_result.id,
-                                "output": format!("{:?}", tool_result.content)
-                            }));
-                        }
-                    },
-                    _ => {}
-                },
-                Err(e) => {
-                    self.logger.log("AGENT", &format!("Stream error: {}", e));
-                    return Err(anyhow!("Stream error: {}", e));
+                        None => break,
+                    }
                 }
             }
         }
@@ -527,7 +533,7 @@ impl Agent {
         });
 
         // 6. Save to memory if available AND not garbage
-        if !is_garbage && self.memory_manager.table.get().is_some() {
+        if !is_garbage && self.memory.table.get().is_some() {
             let memory_id = format!("mem_{}", chrono::Utc::now().timestamp_millis());
             let memory_text = format!("User: {}\nAssistant: {}", user_query, assistant_content);
 
@@ -537,12 +543,12 @@ impl Agent {
             };
 
             let embedding_model = self
-                .memory_manager
+                .memory
                 .embedding_model
                 .get()
                 .ok_or_else(|| anyhow!("Embedding model not initialized"))?;
             let table = self
-                .memory_manager
+                .memory
                 .table
                 .get()
                 .ok_or_else(|| anyhow!("LanceDB table not initialized"))?;
@@ -573,9 +579,9 @@ impl Agent {
                 batch
                     .into_iter()
                     .map(|(_, embs)| {
+                        let e = embs.first();
                         Some(
-                            embs.first()
-                                .vec
+                            e.vec
                                 .into_iter()
                                 .map(|v| Some(v as f32))
                                 .collect::<Vec<_>>(),

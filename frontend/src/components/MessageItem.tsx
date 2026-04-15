@@ -3,12 +3,41 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Message, Block } from '../hooks/useBackend';
 import { ToolTile } from './ToolTile';
+import { openUrl } from '@tauri-apps/plugin-opener';
 
 interface MessageItemProps {
   message: Message;
   status: 'idle' | 'thinking' | 'executing' | 'error';
   isLast: boolean;
 }
+
+const preprocessMarkdown = (text: string) => {
+  // Ensure all list items (starting with * or - at start of line) 
+  // are preceded by a newline to help react-markdown parser.
+  return text.replace(/^(\*|-|\d+\.) /gm, (match, _p1, offset, string) => {
+    // If it's at the start of the string or preceded by a newline, it's fine.
+    // Otherwise, add a newline.
+    if (offset > 0 && string[offset - 1] !== '\n') {
+      return '\n' + match;
+    }
+    return match;
+  });
+};
+
+const MarkdownComponents = {
+  a: ({ href, children, ...props }: any) => (
+    <a 
+      onClick={(e) => {
+        e.preventDefault();
+        if (href) openUrl(href);
+      }} 
+      href={href} 
+      {...props}
+    >
+      {children}
+    </a>
+  )
+};
 
 export const MessageItem: React.FC<MessageItemProps> = ({ message, status, isLast }) => {
   const isAssistant = message.role === 'assistant';
@@ -28,13 +57,14 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, status, isLas
           fontSize: '0.9rem',
           boxShadow: 'var(--shadow-sm)'
         }}>
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {message.content}
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+            {preprocessMarkdown(message.content)}
           </ReactMarkdown>
         </div>
       </div>
     );
   }
+
 
   const renderBlock = (block: Block, index: number, isLastBlock: boolean) => {
     switch (block.type) {
@@ -44,11 +74,10 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, status, isLas
             marginBottom: '12px',
             color: 'var(--text-main)',
             opacity: 0.95,
-            display: 'inline-block',
             width: '100%'
           }}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {block.content}
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+              {preprocessMarkdown(block.content)}
             </ReactMarkdown>
             {isLastBlock && isLast && (status === 'thinking' || status === 'executing') && (
               <span className="blinking-cursor" />
@@ -139,8 +168,8 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, status, isLas
           message.sequence.map((block, i) => renderBlock(block, i, i === message.sequence!.length - 1))
         ) : (
           <div className="markdown-content">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {message.content}
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+              {preprocessMarkdown(message.content)}
             </ReactMarkdown>
             {isLast && (status === 'thinking' || status === 'executing') && (
               <span className="blinking-cursor" />

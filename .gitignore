@@ -15,3 +15,5 @@ venv/
 logic/logs/
 logic/config/user_settings.json
 backend/scratch_test.rs
+backend/target/release/
+backend/searxng/

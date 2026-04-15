@@ -100,6 +100,12 @@ body {
 }
 
 /* Markdown styling */
+.markdown-content {
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .markdown-content p {
   margin-bottom: 12px;
 }
@@ -110,24 +116,30 @@ body {
 
 .markdown-content a {
   color: var(--primary) !important;
-  text-decoration: none;
-  font-weight: 600;
-  border-bottom: 1px solid transparent;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-weight: 500;
+  cursor: pointer;
   transition: all 0.2s;
 }
 
 .markdown-content a:hover {
   color: var(--accent) !important;
-  border-bottom-color: var(--accent);
 }
 
 .markdown-content ul, .markdown-content ol {
   margin: 12px 0;
-  padding-left: 20px;
+  padding-left: 28px;
+  display: block;
 }
 
 .markdown-content li {
   margin-bottom: 6px;
+  display: list-item;
+}
+
+.markdown-content li > ul, .markdown-content li > ol {
+  margin: 6px 0;
 }
 
 .markdown-content code {
@@ -136,6 +148,23 @@ body {
   border-radius: 6px;
   font-family: var(--font-mono);
   font-size: 0.85em;
+  color: var(--accent);
+}
+
+.markdown-content pre {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 16px;
+  border-radius: 12px;
+  margin: 12px 0;
+  overflow-x: auto;
+  border: 1px solid var(--glass-border);
+}
+
+.markdown-content pre code {
+  background: transparent;
+  padding: 0;
+  color: var(--text-main);
+  font-size: 0.85rem;
 }
 
 /* Force Minimalist Fixes */

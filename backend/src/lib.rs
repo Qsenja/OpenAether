@@ -10,6 +10,7 @@ use crate::logic::AppState;
 use crate::logic::ollama::Message;
 use crate::logic::agent::Agent;
 use crate::logic::docker::DockerManager;
+use tokio_util::sync::CancellationToken;
 
 #[tauri::command]
 async fn send_message(
@@ -25,20 +26,14 @@ async fn send_message(
 
     // NORMAL AGENT LOOP
     let base_path = std::env::current_dir().unwrap_or_default();
-    let system_prompt_path = base_path.join("../logic/config/system_prompt.txt");
+    let system_prompt_path = base_path.join("config/system_prompt.txt");
     let system_prompt = std::fs::read_to_string(&system_prompt_path).unwrap_or_else(|_| {
         state.logger.log("SYSTEM", "Warning: Could not read system_prompt.txt, using default.");
         "You are Fabel.".into()
     });
 
-    // 1. Fetch available tools from bridge
-    let schemas = match state.bridge.get_schemas() {
-        Ok(s) => s,
-        Err(e) => {
-            state.logger.log("BRIDGE", &format!("Failed to fetch schemas: {}", e));
-            Vec::new()
-        }
-    };
+    // 1. Fetch available tools (All native now)
+    let schemas = Vec::new();
 
     let (model, temperature, top_p, searxng_url) = {
         let s = state.settings.lock().unwrap();
@@ -47,7 +42,6 @@ async fn send_message(
 
     let agent = Agent::new(
         state.ollama.clone(),
-        state.bridge.clone(),
         state.memory.clone(),
         state.shell.clone(),
         state.logger.clone(),
@@ -58,15 +52,36 @@ async fn send_message(
         searxng_url,
     );
 
+    // Create and store cancellation token
+    let token = CancellationToken::new();
+    {
+        let mut t = state.cancel_token.lock().unwrap();
+        *t = Some(token.clone());
+    }
+
     let app_clone = app.clone();
-    let res: anyhow::Result<()> = agent.process(&mut messages, &model, move |event| {
+    let res: anyhow::Result<()> = agent.process(&mut messages, &model, token.clone(), move |event| {
         let _ = app_clone.emit("backend-event", event);
     }).await;
+
+    // Clear token after completion
+    {
+        let mut t = state.cancel_token.lock().unwrap();
+        *t = None;
+    }
 
     match res {
         Ok(_) => Ok(()),
         Err(e) => Err(e.to_string()),
     }
+}#[tauri::command]
+async fn stop_generation(state: State<'_, AppState>) -> Result<(), String> {
+    state.logger.log("AGENT", "Stop requested by user.");
+    let mut token_lock = state.cancel_token.lock().unwrap();
+    if let Some(token) = token_lock.take() {
+        token.cancel();
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -135,18 +150,8 @@ pub fn run() {
     std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
     std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
 
-    // Use absolute, canonicalized paths to avoid Python RuntimeWarnings (sys.prefix mismatch)
     let base_path = std::env::current_dir().unwrap_or_default();
-    let python_path = base_path.join("../logic/venv/bin/python")
-        .canonicalize()
-        .unwrap_or_else(|_| base_path.join("../logic/venv/bin/python"));
-        
-    let worker_script = base_path.join("../logic/skill_worker.py")
-        .canonicalize()
-        .unwrap_or_else(|_| base_path.join("../logic/skill_worker.py"));
-
-    let state = AppState::new(python_path, worker_script);
-    let _ = state.bridge.start(); // Pre-start bridge
+    let state = AppState::new();
 
     let _logic_path = base_path.join("../logic");
     tauri::Builder::default()
@@ -167,30 +172,33 @@ pub fn run() {
                 }
 
                 // Automated Memory Sanitization (Self-Healing)
-                // Purge any malformed tool call leaks from previous sessions
                 if let Err(e) = state.memory.sanitize_memory().await {
                     state.logger.log("SYSTEM", &format!("Warning: Memory sanitization failed: {}", e));
                 }
 
-                // Internal Tool Manual Synchronization
-                // This ensures the agent always knows its capabilities without prompt bloat
-                let schemas = state.bridge.get_schemas().unwrap_or_default();
-                
-                // Create a temporary agent instance to gather all definitions (Native + Bridge)
+                let (searxng_url, system_prompt) = {
+                    let s = state.settings.lock().unwrap();
+                    let prompt = std::fs::read_to_string(std::env::current_dir().unwrap_or_default().join("config/system_prompt.txt"))
+                        .unwrap_or_else(|_| "You are Fabel.".into());
+                    (s.searxng_url.clone(), prompt)
+                };
+
+                // Create a temporary agent instance to gather all definitions (All Native)
                 let temp_agent = Agent::new(
                     state.ollama.clone(),
-                    state.bridge.clone(),
                     state.memory.clone(),
                     state.shell.clone(),
                     state.logger.clone(),
-                    "sync-persona".to_string(),
-                    schemas,
-                    0.5,
+                    system_prompt,
+                    Vec::new(),
+                    0.7,
                     0.9,
-                    "".to_string()
+                    searxng_url,
                 );
 
-                let all_defs = temp_agent.get_all_tool_definitions();
+                let _dummy_token = CancellationToken::new();
+
+                let all_defs = temp_agent.get_all_tool_definitions().await;
                 match state.memory.sync_tool_manual(all_defs).await {
                     Ok(_) => state.logger.log("MEMORY", "Internal tool manual synchronized successfully."),
                     Err(e) => state.logger.log("MEMORY", &format!("Warning: Tool manual sync failed: {}", e)),
@@ -200,6 +208,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             send_message,
+            stop_generation,
             get_settings,
             update_settings,
             get_setup_status,
