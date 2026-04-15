@@ -1,41 +1,41 @@
 # OpenAether
 
-OpenAether is a high-performance, intelligent desktop agent framework, purpose-built for **Arch Linux** and **Hyprland**. It features a 100% native Rust core for maximum speed, security, and deep system integration.
+OpenAether is a next-generation desktop intelligence platform, built for the **Linux ecosystem**. It provides a seamless, high-performance bridge between your local LLM and your OS, supporting a wide range of distributions and desktop environments.
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ The Vision
 
-OpenAether is designed for low-latency autonomy and privacy:
+OpenAether is a **universal system companion**. It's designed to understand and control your desktop regardless of your choice of Window Manager or Desktop Environment—all while running 100% locally and privately.
 
-- **Core (Rust/Tauri)**: The high-performance backbone. Manages window context, system IPC, and the **Rig Agent** framework for native tool execution.
-- **Native Skills (Rust)**: All tools are implemented directly in Rust, eliminating the overhead of external bridges and ensuring instant responsiveness.
-- **Interface (React)**: A modern UI built with React 19, Vite, and TypeScript, featuring transparent windows, glassmorphism aesthetics, and real-time streaming.
-- **Memory (LanceDB)**: Persistent local vector memory (RAG), allowing the AI to recall previous conversations and system facts with low overhead.
+### ✨ Core Pillars
+- **Native Performance**: 100% Pure Rust core for near-zero latency across all Linux distributions.
+- **Universal Awareness**: Intelligent detection and support for GNOME, KDE, XFCE, Hyprland, Sway, i3, and more.
+- **Privacy First**: Everything stays on your machine. Local inference via Ollama and local vector memory via LanceDB.
+- **Distro Agnostic**: Built-in support for `pacman`, `apt`, `dnf`, `zypper`, and `apk`.
 
 ---
 
 ## 🚀 Key Features
 
-- **Blazing Fast Native Core**: Pure Rust implementation with zero Python overhead.
-- **System-Native Intelligence**: Deep integration with `hyprctl`, allowing the AI to see your open windows, workspaces, and system state.
-- **Tool-Augmented Reasoning**: Powered by the Rig framework, enabling multi-step tool calls for complex tasks.
-- **Web Search (SearXNG)**: Privacy-focused web search integration with automatic Docker management.
-- **Persistent Memory**: Self-healing RAG system that purges malformed data and persists facts in a local vector database.
-- **Desktop Automation**: High-speed skills for controlling volume, notifications, workspaces, and window management.
+- **Blazing Fast Native Core**: Engineered in Rust/Tauri for a premium, lightweight desktop integration.
+- **Universal Desktop Control**: Unified tools for managing windows and workspaces across Wayland and X11.
+- **Autonomous Reasoning**: An agent that doesn't just talk—it executes tasks, searches the web, and manages files.
+- **Self-Healing Memory**: Persistent RAG (Retrieval-Augmented Generation) that learns from your interactions.
+- **Ambient UI**: A stunning, glassmorphism-inspired interface crafted with React 19 and Vite.
 
 ---
 
-## 🧰 Available Skills (Native Rust)
+## 🧰 Native Skill System
 
-OpenAether features a comprehensive suite of native tools:
+OpenAether launches with a powerful set of universal capabilities:
 
-- **Web**: `web_search`, `fetch_url`, `open_website`, `scan_network`, `get_wifi_info`
-- **System**: `run_command`, `install_software`, `get_system_info`, `kill_process`, `get_software_version`
-- **Desktop (Hyprland)**: `get_workspaces`, `switch_workspace`, `get_windows`, `move_window_to_workspace`
-- **Automation**: `click`, `type_text`, `set_volume`, `send_notification`, `play_audio`
-- **Files**: `read_file`, `write_file`, `edit_file`, `list_directory`, `search_files`
-- **Agent Utilities**: `remember`, `recall`, `set_timer`, `schedule_task`, `translate`
+- **🌐 Web**: Real-time search (SearXNG), website interaction, and network analysis.
+- **💻 Package Management**: Install and manage software across Arch, Debian, Fedora, openSUSE, and Alpine.
+- **🪟 Desktop**: Intelligent control for Hyprland, Sway, i3, BSPWM, River, Awesome, GNOME, and KDE.
+- **🛠️ Automation**: Universal keyboard/mouse simulation, volume control, and system notifications.
+- **📂 File System**: Intelligent file reading, editing, and directory exploration.
+- **🧠 Knowledge**: Local memory retrieval, task scheduling, and real-time translation.
 
 ---
 
@@ -43,67 +43,42 @@ OpenAether features a comprehensive suite of native tools:
 
 ### 📋 Prerequisites
 
-Ensure you have the following installed on your Arch Linux system:
+OpenAether is compatible with most modern Linux environments:
 
-- **Ollama**: For local LLM inference.
-- **Docker**: For running SearXNG (search engine).
-- **Rust/Cargo**: To build the Tauri backend.
-- **Node.js & npm**: For the frontend.
+- **Ollama**: Local LLM host (e.g., Llama 3, Mistral, or Qwen).
+- **Docker**: For running the private SearXNG search engine.
+- **Rust & Node.js**: Standard build environment for the Tauri/React stack.
 
 ## 📦 Installation
 
-Choose one of the following methods to install OpenAether on Arch Linux:
-
 ### Option 1: Native Build (Recommended)
-To build from source, follow these steps:
-1. **Clone the Repository**:
+1. **Clone the Project**:
    ```bash
    git clone https://github.com/qsenja/OpenAether.git
    cd OpenAether
    ```
-2. **Build and Install**:
+2. **Launch**:
    ```bash
    npm install
-   npm run build
+   npm run build  # For production build
+   npm run dev    # For development mode
    ```
 
-### Option 2: AUR (Arch User Repository)
-If you use an AUR helper like `yay` or `paru`, you can install it directly:
-```bash
-yay -S openaether
-```
-
-### 🏃 Running OpenAether
-For development:
-```bash
-npm run dev
-```
+### Option 2: Distribution Packages
+- **Arch Linux (AUR)**: `yay -S openaether`
+- **Flatpak/AppImage**: Coming soon.
 
 ---
 
-## 🔍 Diagnostics & Logs
+## 📂 Architecture at a Glance
 
-If you encounter issues, logs are stored in the following locations:
-
-- **Application Logs**: `~/.local/share/openaether/logs/`
-- **Config Directory**: `~/.config/openaether/`
-
-To check if SearXNG is running, use:
-```bash
-docker ps | grep searxng
-```
-
----
-
-## 📂 Project Structure
-
-- `backend/`: Rust source (Tauri commands, Rig Agent, Native Skills, Logger)
-- `frontend/`: React 19 + TypeScript UI source
-- `backend/src/main/preskills/`: Location of all native Rust tool implementations.
-- `package.json`: Main orchestration scripts
+- **Backend (`backend/`)**: High-performance Rust core and the Rig Agent orchestration engine.
+- **Frontend (`frontend/`)**: Modern React 19 UI with TypeScript and Tailwind-ready components.
+- **Native Skills (`backend/src/main/preskills/`)**: Multi-environment system abstractions.
+- **Memory (`backend/lancedb/`)**: Local vector database for persistent agent recall.
 
 ---
 
 ## 📜 License
 
-This project is licensed under the **Apache License 2.0**. See the `LICENSE` file for details.
+Licensed under the **Apache License 2.0**. Crafted with 🦀 and ⚡ for the Linux community.
